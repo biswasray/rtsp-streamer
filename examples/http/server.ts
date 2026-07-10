@@ -18,7 +18,7 @@ import * as path from "node:path";
 import { streamRTSP } from "../../src";
 
 const HTTP_PORT = 8080;
-const PUBLIC_DIR = path.join(import.meta.dirname, "public");
+const PUBLIC_DIR = path.join(import.meta.dirname, "..", "public");
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
