@@ -15,7 +15,7 @@
 import * as http from "node:http";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { streamRTSP } from "../../src";
+import { streamRTSP } from "../../dist";
 
 const HTTP_PORT = 8080;
 const PUBLIC_DIR = path.join(import.meta.dirname, "..", "public");

@@ -19,7 +19,7 @@
 import * as path from "node:path";
 import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
-import { streamRTSP } from "../../src";
+import { streamRTSP } from "../../dist";
 
 const HTTP_PORT = 8080;
 const PUBLIC_DIR = path.join(import.meta.dirname, "..", "public");
