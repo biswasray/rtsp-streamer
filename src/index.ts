@@ -7,8 +7,8 @@
  *
  * Behaviour:
  *  - Attaches ONE 'upgrade' handler to the given http.Server (idempotent).
- *  - Serves the bundled <rtsp-player> browser element at /rtsp-player.js from
- *    this package's dist/html, so pages can just
+ *  - Serves the bundled <rtsp-player> browser element at /rtsp-player.js
+ *    (inlined at build time), so pages can just
  *    `<script type="module" src="/rtsp-player.js">` — no copy step. See
  *    serveRtspPlayer() to mount it yourself at a different path.
  *  - One RTSP session per unique rtspUrl (many viewers share one camera
@@ -24,10 +24,12 @@
 
 import * as net from "node:net";
 import * as crypto from "node:crypto";
-import * as fs from "node:fs";
-import * as path from "node:path";
 import type * as http from "node:http";
 import type { Duplex } from "node:stream";
+import {
+  RTSP_PLAYER_JS,
+  RTSP_PLAYER_JS_MAP,
+} from "./player-asset.generated.js";
 
 const START = Buffer.from([0, 0, 0, 1]);
 const WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -494,22 +496,22 @@ function attachUpgradeHandler(server: http.Server): void {
 
 /* ----------------------- browser asset serving ------------------------- */
 
-// The compiled <rtsp-player> element ships beside this file in dist/html.
-const PLAYER_DIR = path.join(__dirname, "html");
 const DEFAULT_PLAYER_PATH = "/rtsp-player.js";
-const ASSET_MIME: Record<string, string> = {
-  ".js": "text/javascript; charset=utf-8",
-  ".map": "application/json; charset=utf-8",
-};
-const assetCache = new Map<string, Buffer>();
 
-/**
- * Absolute path to the bundled `rtsp-player.js` on disk — handy if you want
- * to serve it with your framework's own static-file machinery.
- */
-export function playerScriptPath(): string {
-  return path.join(PLAYER_DIR, "rtsp-player.js");
-}
+// The compiled <rtsp-player> element is inlined at build time (see
+// scripts/build-assets.mjs) rather than read from disk, so it serves the same
+// bytes from both the CJS and ESM builds without any __dirname / import.meta
+// path resolution.
+const ASSETS: Record<string, { body: Buffer; type: string }> = {
+  "rtsp-player.js": {
+    body: Buffer.from(RTSP_PLAYER_JS),
+    type: "text/javascript; charset=utf-8",
+  },
+  "rtsp-player.js.map": {
+    body: Buffer.from(RTSP_PLAYER_JS_MAP),
+    type: "application/json; charset=utf-8",
+  },
+};
 
 /**
  * Serve the bundled <rtsp-player> element (and its source map) for a plain
@@ -529,29 +531,18 @@ export function serveRtspPlayer(
 ): boolean {
   if (req.method !== "GET" && req.method !== "HEAD") return false;
   const urlPath = (req.url ?? "").split("?")[0];
-  let file: string | null = null;
-  if (urlPath === mountPath) file = "rtsp-player.js";
-  else if (urlPath === `${mountPath}.map`) file = "rtsp-player.js.map";
-  if (!file) return false;
+  let key: string | null = null;
+  if (urlPath === mountPath) key = "rtsp-player.js";
+  else if (urlPath === `${mountPath}.map`) key = "rtsp-player.js.map";
+  if (!key) return false;
 
-  let data = assetCache.get(file);
-  if (!data) {
-    try {
-      data = fs.readFileSync(path.join(PLAYER_DIR, file));
-      assetCache.set(file, data);
-    } catch {
-      res.writeHead(404).end();
-      return true;
-    }
-  }
-
+  const asset = ASSETS[key]!;
   res.writeHead(200, {
-    "Content-Type":
-      ASSET_MIME[path.extname(file)] ?? "application/octet-stream",
-    "Content-Length": data.length,
+    "Content-Type": asset.type,
+    "Content-Length": asset.body.length,
     "Cache-Control": "public, max-age=3600",
   });
-  res.end(req.method === "HEAD" ? undefined : data);
+  res.end(req.method === "HEAD" ? undefined : asset.body);
   return true;
 }
 

@@ -1,0 +1,11 @@
+{
+  // ESM build. Emits ES modules to dist/esm; a nested package.json marks that
+  // directory `"type": "module"` (see scripts/finalize-dist.mjs). Shares every
+  // other option with the CJS build in tsconfig.json.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "outDir": "./dist/esm"
+  }
+}

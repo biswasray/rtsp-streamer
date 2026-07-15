@@ -1,4 +1,6 @@
 {
+  // CommonJS build (dist/), and the project eslint/editor type-check against.
+  // The ESM build (dist/esm/) extends this via tsconfig.esm.json.
   "compilerOptions": {
     "target": "ES2022",
     "module": "NodeNext",

@@ -3,17 +3,36 @@
   "version": "1.0.0",
   "description": "",
   "main": "dist/index.js",
+  "module": "dist/esm/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/esm/index.js",
+      "require": "./dist/index.js"
+    },
+    "./html": {
+      "types": "./dist/html/rtsp-player.d.ts",
+      "default": "./dist/html/rtsp-player.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "build": "tsc && npm run build:html",
+    "build": "npm run build:assets && npm run build:cjs && npm run build:esm && node scripts/finalize-dist.mjs",
     "build:html": "tsc -p tsconfig.html.json",
+    "build:assets": "npm run build:html && node scripts/build-assets.mjs",
+    "build:cjs": "tsc -p tsconfig.json",
+    "build:esm": "tsc -p tsconfig.esm.json",
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
     "examples:http": "tsx examples/http/server.ts",
     "examples:express": "tsx examples/express/server.ts",
     "examples:fastify": "tsx examples/fastify/server.ts",
     "examples:nest": "tsx --tsconfig examples/nest/tsconfig.json examples/nest/server.ts",
-    "typecheck": "tsc --noEmit && tsc -p tsconfig.html.json --noEmit",
+    "typecheck": "npm run build:assets && tsc -p tsconfig.json --noEmit && tsc -p tsconfig.esm.json --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
