@@ -15,7 +15,7 @@
 import * as http from "node:http";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { streamRTSP } from "../../dist";
+import { streamRTSP, serveRtspPlayer } from "../../dist";
 
 const HTTP_PORT = 8080;
 const PUBLIC_DIR = path.join(import.meta.dirname, "..", "public");
@@ -32,6 +32,10 @@ function json(res: http.ServerResponse, status: number, obj: unknown): void {
 }
 
 const server = http.createServer((req, res) => {
+  /* ------------------- bundled <rtsp-player> element ------------------ */
+  // Serve /rtsp-player.js from the package's dist/html (no copy step).
+  if (serveRtspPlayer(req, res)) return;
+
   /* ---------------------------- API ---------------------------------- */
   if (req.method === "POST" && req.url === "/api/stream") {
     let body = "";

@@ -1,0 +1,23 @@
+{
+  // Browser assets in src/html: DOM + WebCodecs, ESM output, no Node types.
+  // Kept separate from tsconfig.json, which targets Node.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": [],
+    "outDir": "./dist/html",
+    "rootDir": "./src/html",
+    "declaration": true,
+    "sourceMap": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/html/**/*"]
+}

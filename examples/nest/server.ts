@@ -23,7 +23,7 @@
 
 import "reflect-metadata";
 import * as path from "node:path";
-import type { Server } from "node:http";
+import type { Server, IncomingMessage, ServerResponse } from "node:http";
 import {
   BadRequestException,
   Body,
@@ -33,7 +33,7 @@ import {
 } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { NestExpressApplication } from "@nestjs/platform-express";
-import { streamRTSP } from "../../dist";
+import { streamRTSP, serveRtspPlayer } from "../../dist";
 
 const HTTP_PORT = 8080;
 const PUBLIC_DIR = path.join(__dirname, "..", "public");
@@ -66,6 +66,10 @@ async function bootstrap(): Promise<void> {
     logger: ["error", "warn"],
   });
   httpServer = app.getHttpServer() as Server;
+  // Serve /rtsp-player.js from the package's dist/html (no copy step).
+  app.use((req: IncomingMessage, res: ServerResponse, next: () => void) => {
+    if (!serveRtspPlayer(req, res)) next();
+  });
   app.useStaticAssets(PUBLIC_DIR); // serves index.html at "/"
   await app.listen(HTTP_PORT);
   console.log(`[nest] open http://localhost:${HTTP_PORT}`);

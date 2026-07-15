@@ -9,7 +9,9 @@ export default tseslint.config(
   },
   js.configs.recommended,
   {
+    // Node library source (src/html is browser code — see below).
     files: ["src/**/*.ts"],
+    ignores: ["src/html/**"],
     extends: [...tseslint.configs.recommendedTypeChecked],
     languageOptions: {
       parserOptions: {
@@ -25,6 +27,18 @@ export default tseslint.config(
     },
   },
   {
+    // Browser custom element: DOM + WebCodecs, typed against tsconfig.html.json.
+    files: ["src/html/**/*.ts"],
+    extends: [...tseslint.configs.recommendedTypeChecked],
+    languageOptions: {
+      globals: globals.browser,
+      parserOptions: {
+        project: "./tsconfig.html.json",
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+  },
+  {
     // Example servers: Node TS, linted without type info (not in tsconfig).
     files: ["examples/**/*.ts"],
     extends: [...tseslint.configs.recommended],
@@ -33,14 +47,11 @@ export default tseslint.config(
     },
   },
   {
-    // Browser client shipped to the page.
+    // Page glue for the demo.
     files: ["examples/**/public/**/*.js"],
     languageOptions: {
-      globals: {
-        ...globals.browser,
-        VideoDecoder: "readonly",
-        EncodedVideoChunk: "readonly",
-      },
+      globals: globals.browser,
+      parserOptions: { sourceType: "module" },
     },
   },
   {

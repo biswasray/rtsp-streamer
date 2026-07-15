@@ -18,7 +18,7 @@
 import * as http from "node:http";
 import * as path from "node:path";
 import express from "express";
-import { streamRTSP } from "../../dist";
+import { streamRTSP, serveRtspPlayer } from "../../dist";
 
 const HTTP_PORT = 8080;
 const PUBLIC_DIR = path.join(import.meta.dirname, "..", "public");
@@ -42,6 +42,12 @@ app.post("/api/stream", (req, res) => {
   } catch (e) {
     res.status(400).json({ error: (e as Error).message });
   }
+});
+
+/* ------------------- bundled <rtsp-player> element -------------------- */
+// Serve /rtsp-player.js from the package's dist/html (no copy step).
+app.use((req, res, next) => {
+  if (!serveRtspPlayer(req, res)) next();
 });
 
 /* ------------------------- static files ------------------------------- */

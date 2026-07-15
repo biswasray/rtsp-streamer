@@ -7,6 +7,10 @@
  *
  * Behaviour:
  *  - Attaches ONE 'upgrade' handler to the given http.Server (idempotent).
+ *  - Serves the bundled <rtsp-player> browser element at /rtsp-player.js from
+ *    this package's dist/html, so pages can just
+ *    `<script type="module" src="/rtsp-player.js">` — no copy step. See
+ *    serveRtspPlayer() to mount it yourself at a different path.
  *  - One RTSP session per unique rtspUrl (many viewers share one camera
  *    connection); every streamRTSP() call returns a fresh access token.
  *  - New viewers immediately receive the last cached keyframe (SPS+PPS+IDR),
@@ -20,6 +24,8 @@
 
 import * as net from "node:net";
 import * as crypto from "node:crypto";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import type * as http from "node:http";
 import type { Duplex } from "node:stream";
 
@@ -443,6 +449,7 @@ export function streamRTSP(server: http.Server, rtspUrl: string): string {
 
   if (!attachedServers.has(server)) {
     attachUpgradeHandler(server);
+    attachAssetHandler(server);
     attachedServers.add(server);
   }
 
@@ -482,5 +489,83 @@ function attachUpgradeHandler(server: http.Server): void {
         `Sec-WebSocket-Accept: ${accept}\r\n\r\n`,
     );
     sess.addClient(socket);
+  });
+}
+
+/* ----------------------- browser asset serving ------------------------- */
+
+// The compiled <rtsp-player> element ships beside this file in dist/html.
+const PLAYER_DIR = path.join(__dirname, "html");
+const DEFAULT_PLAYER_PATH = "/rtsp-player.js";
+const ASSET_MIME: Record<string, string> = {
+  ".js": "text/javascript; charset=utf-8",
+  ".map": "application/json; charset=utf-8",
+};
+const assetCache = new Map<string, Buffer>();
+
+/**
+ * Absolute path to the bundled `rtsp-player.js` on disk — handy if you want
+ * to serve it with your framework's own static-file machinery.
+ */
+export function playerScriptPath(): string {
+  return path.join(PLAYER_DIR, "rtsp-player.js");
+}
+
+/**
+ * Serve the bundled <rtsp-player> element (and its source map) for a plain
+ * `http.IncomingMessage`. Returns `true` if it handled the request (a GET/HEAD
+ * for `mountPath` or `mountPath + ".map"`) and wrote the response, `false`
+ * otherwise — so you can call it first and fall through to your own routing:
+ *
+ *   if (serveRtspPlayer(req, res)) return;
+ *
+ * streamRTSP() wires this up automatically at /rtsp-player.js; use this
+ * directly only to change the mount path or serve it without streamRTSP.
+ */
+export function serveRtspPlayer(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  mountPath: string = DEFAULT_PLAYER_PATH,
+): boolean {
+  if (req.method !== "GET" && req.method !== "HEAD") return false;
+  const urlPath = (req.url ?? "").split("?")[0];
+  let file: string | null = null;
+  if (urlPath === mountPath) file = "rtsp-player.js";
+  else if (urlPath === `${mountPath}.map`) file = "rtsp-player.js.map";
+  if (!file) return false;
+
+  let data = assetCache.get(file);
+  if (!data) {
+    try {
+      data = fs.readFileSync(path.join(PLAYER_DIR, file));
+      assetCache.set(file, data);
+    } catch {
+      res.writeHead(404).end();
+      return true;
+    }
+  }
+
+  res.writeHead(200, {
+    "Content-Type":
+      ASSET_MIME[path.extname(file)] ?? "application/octet-stream",
+    "Content-Length": data.length,
+    "Cache-Control": "public, max-age=3600",
+  });
+  res.end(req.method === "HEAD" ? undefined : data);
+  return true;
+}
+
+/**
+ * Wrap the server's existing 'request' listeners so /rtsp-player.js is served
+ * before falling through to the app. Wrapping (rather than adding a second
+ * listener) avoids a double response on that path. Call streamRTSP() after
+ * your routes/handler are attached so they are captured here.
+ */
+function attachAssetHandler(server: http.Server): void {
+  const downstream = server.listeners("request") as http.RequestListener[];
+  server.removeAllListeners("request");
+  server.on("request", (req, res) => {
+    if (serveRtspPlayer(req, res)) return;
+    for (const fn of downstream) fn.call(server, req, res);
   });
 }

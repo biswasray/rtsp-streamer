@@ -19,12 +19,20 @@
 import * as path from "node:path";
 import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
-import { streamRTSP } from "../../dist";
+import { streamRTSP, serveRtspPlayer } from "../../dist";
 
 const HTTP_PORT = 8080;
 const PUBLIC_DIR = path.join(import.meta.dirname, "..", "public");
 
 const app = Fastify({ bodyLimit: 4096 }); // tiny requests expected
+
+/* ------------------- bundled <rtsp-player> element -------------------- */
+// Serve /rtsp-player.js from the package's dist/html (no copy step). We write
+// to the raw response and hijack so Fastify leaves the reply alone.
+app.addHook("onRequest", (req, reply, done) => {
+  if (serveRtspPlayer(req.raw, reply.raw)) reply.hijack();
+  else done();
+});
 
 /* ------------------------- static files ------------------------------- */
 app.register(fastifyStatic, { root: PUBLIC_DIR }); // serves index.html at "/"

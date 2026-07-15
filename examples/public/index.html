@@ -68,12 +68,8 @@
         color: #ff7676;
       }
 
-      canvas {
+      rtsp-player {
         width: min(960px, 100%);
-        background: #000;
-        border-radius: 10px;
-        aspect-ratio: 16 / 9;
-        object-fit: contain;
       }
     </style>
   </head>
@@ -92,7 +88,13 @@
       <button id="stopBtn" type="button" class="stop" disabled>Stop</button>
     </form>
     <div id="status">enter an RTSP URL and press Play</div>
-    <canvas id="video"></canvas>
-    <script src="client.js"></script>
+
+    <!-- The player owns the transport, the decoder and the canvas.
+         Add `src="rtsp://…" autoplay` here to skip the form entirely. -->
+    <rtsp-player id="player" muted></rtsp-player>
+
+    <!-- Served by streamRTSP()/serveRtspPlayer() from the package's dist. -->
+    <script type="module" src="/rtsp-player.js"></script>
+    <script type="module" src="client.js"></script>
   </body>
 </html>
