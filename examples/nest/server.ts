@@ -6,10 +6,10 @@
  *
  * Serves the same browser client as the other examples (../public).
  *
- * The WebSocket upgrade is handled by streamRTSP() on the underlying
+ * The WebSocket upgrade is handled by streamRtsp() on the underlying
  * http.Server. Nest (on the Express platform) creates and owns that
  * server; we grab it with app.getHttpServer() during bootstrap and hand
- * it to streamRTSP — Nest keeps ownership of the ordinary HTTP routes.
+ * it to streamRtsp — Nest keeps ownership of the ordinary HTTP routes.
  *
  * Note: this example is run with tsx/esbuild, which does not emit
  * decorator *metadata* (design:paramtypes). We therefore avoid
@@ -33,7 +33,7 @@ import {
 } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { NestExpressApplication } from "@nestjs/platform-express";
-import { streamRTSP, serveRtspPlayer } from "../../dist";
+import { streamRtsp, serveRtspPlayer } from "../../dist";
 
 const HTTP_PORT = 8080;
 const PUBLIC_DIR = path.join(__dirname, "..", "public");
@@ -49,7 +49,7 @@ class StreamController {
       throw new BadRequestException("rtspUrl (rtsp://…) is required");
     }
     try {
-      const wsPath = streamRTSP(httpServer, rtspUrl);
+      const wsPath = streamRtsp(httpServer, rtspUrl);
       console.log(`[api] ${rtspUrl.replace(/\/\/.*@/, "//***@")} -> ${wsPath}`);
       return { path: wsPath };
     } catch (e) {

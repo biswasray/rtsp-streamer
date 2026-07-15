@@ -6,9 +6,9 @@
  *
  * Serves the same browser client as the other examples (../public).
  *
- * The WebSocket upgrade is handled by streamRTSP() on the underlying
+ * The WebSocket upgrade is handled by streamRtsp() on the underlying
  * http.Server. Fastify creates and owns that server, exposed as
- * `app.server`, so that is what we hand to streamRTSP — Fastify keeps
+ * `app.server`, so that is what we hand to streamRtsp — Fastify keeps
  * ownership of the ordinary HTTP routes.
  *
  * Run:
@@ -19,7 +19,7 @@
 import * as path from "node:path";
 import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
-import { streamRTSP, serveRtspPlayer } from "../../dist";
+import { streamRtsp, serveRtspPlayer } from "../../dist";
 
 const HTTP_PORT = 8080;
 const PUBLIC_DIR = path.join(import.meta.dirname, "..", "public");
@@ -44,7 +44,7 @@ app.post("/api/stream", (req, reply) => {
     return reply.code(400).send({ error: "rtspUrl (rtsp://…) is required" });
   }
   try {
-    const wsPath = streamRTSP(app.server, rtspUrl);
+    const wsPath = streamRtsp(app.server, rtspUrl);
     console.log(`[api] ${rtspUrl.replace(/\/\/.*@/, "//***@")} -> ${wsPath}`);
     return reply.send({ path: wsPath });
   } catch (e) {

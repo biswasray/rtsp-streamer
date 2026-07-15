@@ -21,7 +21,7 @@
  * Events: "playing", "stopped", "error" (detail: { message }),
  *         "statechange" (detail: { state })
  *
- * Talks to the server exposed by streamRTSP():
+ * Talks to the server exposed by streamRtsp():
  *   1. POST <api> { rtspUrl }  ->  { path: "/stream/<token>" }
  *   2. WebSocket on that path; each binary message is
  *      [1 byte key flag][Annex-B H.264 access unit]

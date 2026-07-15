@@ -1,8 +1,8 @@
 /**
  * rtsp-stream.ts — Reusable, zero-dependency RTSP -> WebSocket streaming module.
  *
- *   import { streamRTSP } from './rtsp-stream.ts';
- *   const path = streamRTSP(server, 'rtsp://user:pass@cam/stream1');
+ *   import { streamRtsp } from './rtsp-stream.ts';
+ *   const path = streamRtsp(server, 'rtsp://user:pass@cam/stream1');
  *   // -> "/stream/3f9c2e...b1" (WebSocket endpoint, token-protected)
  *
  * Behaviour:
@@ -12,7 +12,7 @@
  *    `<script type="module" src="/rtsp-player.js">` — no copy step. See
  *    serveRtspPlayer() to mount it yourself at a different path.
  *  - One RTSP session per unique rtspUrl (many viewers share one camera
- *    connection); every streamRTSP() call returns a fresh access token.
+ *    connection); every streamRtsp() call returns a fresh access token.
  *  - New viewers immediately receive the last cached keyframe (SPS+PPS+IDR),
  *    so video starts without waiting for the camera's next IDR.
  *  - When a session has had no viewers for IDLE_MS it sends TEARDOWN and
@@ -442,7 +442,7 @@ const sessionsByToken = new Map<string, RtspSession>();
  * "/stream/6bd1…e2". Multiple calls with the same rtspUrl share one
  * camera connection but get distinct tokens.
  */
-export function streamRTSP(server: http.Server, rtspUrl: string): string {
+export function streamRtsp(server: http.Server, rtspUrl: string): string {
   new URL(rtspUrl); // throws on malformed URL
   if (!/^rtsp:\/\//i.test(rtspUrl))
     throw new Error("rtspUrl must start with rtsp://");
@@ -519,8 +519,8 @@ export function playerScriptPath(): string {
  *
  *   if (serveRtspPlayer(req, res)) return;
  *
- * streamRTSP() wires this up automatically at /rtsp-player.js; use this
- * directly only to change the mount path or serve it without streamRTSP.
+ * streamRtsp() wires this up automatically at /rtsp-player.js; use this
+ * directly only to change the mount path or serve it without streamRtsp.
  */
 export function serveRtspPlayer(
   req: http.IncomingMessage,
@@ -558,7 +558,7 @@ export function serveRtspPlayer(
 /**
  * Wrap the server's existing 'request' listeners so /rtsp-player.js is served
  * before falling through to the app. Wrapping (rather than adding a second
- * listener) avoids a double response on that path. Call streamRTSP() after
+ * listener) avoids a double response on that path. Call streamRtsp() after
  * your routes/handler are attached so they are captured here.
  */
 function attachAssetHandler(server: http.Server): void {

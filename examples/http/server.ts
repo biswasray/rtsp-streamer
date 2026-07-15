@@ -1,5 +1,5 @@
 /**
- * server.ts — Example server using the streamRTSP module.
+ * server.ts — Example server using the streamRtsp module.
  *
  *   POST /api/stream  { "rtspUrl": "rtsp://user:pass@cam/stream1" }
  *     -> { "path": "/stream/<token>" }
@@ -15,7 +15,7 @@
 import * as http from "node:http";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { streamRTSP, serveRtspPlayer } from "../../dist";
+import { streamRtsp, serveRtspPlayer } from "../../dist";
 
 const HTTP_PORT = 8080;
 const PUBLIC_DIR = path.join(import.meta.dirname, "..", "public");
@@ -50,7 +50,7 @@ const server = http.createServer((req, res) => {
           json(res, 400, { error: "rtspUrl (rtsp://…) is required" });
           return;
         }
-        const wsPath = streamRTSP(server, rtspUrl);
+        const wsPath = streamRtsp(server, rtspUrl);
         console.log(
           `[api] ${rtspUrl.replace(/\/\/.*@/, "//***@")} -> ${wsPath}`,
         );
