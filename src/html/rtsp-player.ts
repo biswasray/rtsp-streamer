@@ -10,22 +10,31 @@
  *   width     CSS width  of the video surface (px if unitless)
  *   height    CSS height of the video surface (px if unitless)
  *   autoplay  play as soon as the element connects / src changes
- *   muted     audio is muted (the transport is video-only today, so this is
- *             always effectively true; kept for parity with <video>)
+ *   muted     mute audio output (toggleable live, like <video>)
  *   api       endpoint that mints a stream token (default "/api/stream")
  *
  * Methods:
  *   play(src?)  resolve a token, open the WebSocket, start decoding
- *   stop()      close the socket + decoder and blank the canvas
+ *   stop()      close the socket + decoders and blank the canvas
  *
  * Events: "playing", "stopped", "error" (detail: { message }),
  *         "statechange" (detail: { state })
  *
  * Talks to the server exposed by streamRtsp():
  *   1. POST <api> { rtspUrl }  ->  { path: "/stream/<token>" }
- *   2. WebSocket on that path; each binary message is
- *      [1 byte key flag][Annex-B H.264 access unit]
- *   3. Decode with WebCodecs VideoDecoder, paint on a <canvas>.
+ *   2. WebSocket on that path; first byte of each binary message is the type
+ *      (mirrored in src/index.ts):
+ *        0 delta video / 1 key video  [Annex-B H.264 access unit]
+ *        2 audio config               [JSON AudioDecoderConfig-ish]
+ *        3 audio frame                [AAC AU / G.711 bytes / Opus packet]
+ *   3. Video: WebCodecs VideoDecoder -> <canvas>. Audio: WebCodecs
+ *      AudioDecoder -> Web Audio, scheduled sequentially through a GainNode
+ *      (which is what `muted` drives). Audio failures never stop the video —
+ *      the element just degrades to a silent player.
+ *
+ * Autoplay policy: browsers keep an AudioContext suspended until a user
+ * gesture. play() attempts resume(); if the context stays suspended (e.g.
+ * `autoplay` without any interaction) the first pointerdown resumes it.
  */
 
 export type PlayerState =
@@ -42,6 +51,19 @@ interface StreamResponse {
   path?: string;
   error?: string;
 }
+
+/** Type-2 wire message: how to configure the AudioDecoder. */
+interface AudioConfigMessage {
+  codec: string; // "mp4a.40.2" | "ulaw" | "alaw" | "opus"
+  sampleRate: number;
+  numberOfChannels: number;
+  description?: string; // base64 AudioSpecificConfig (AAC only)
+}
+
+// Wire message types (first payload byte) — mirrored in src/index.ts.
+const MSG_VIDEO_KEY = 1;
+const MSG_AUDIO_CONFIG = 2;
+const MSG_AUDIO = 3;
 
 const STYLE = `
   :host {
@@ -92,6 +114,14 @@ export class RtspPlayer extends HTMLElement {
   #state: PlayerState = "idle";
   /** Guards against a late play() resolving after a newer play()/stop(). */
   #run = 0;
+
+  #audioDecoder: AudioDecoder | null = null;
+  #audioCtx: AudioContext | null = null;
+  #audioGain: GainNode | null = null;
+  #audioCfg: AudioConfigMessage | null = null;
+  #audioPlayhead = 0; // AudioContext time the next buffer starts at
+  #audioTs = 0; // synthetic µs timestamp fed to the decoder
+  #resumeOnGesture: (() => void) | null = null;
 
   constructor() {
     super();
@@ -183,6 +213,11 @@ export class RtspPlayer extends HTMLElement {
     if (oldValue === newValue) return;
     if (name === "width" || name === "height") {
       this.#applySize();
+      return;
+    }
+    if (name === "muted") {
+      if (this.#audioGain)
+        this.#audioGain.gain.value = newValue !== null ? 0 : 1;
       return;
     }
     if (name !== "src" || !this.isConnected) return;
@@ -278,13 +313,24 @@ export class RtspPlayer extends HTMLElement {
     this.#decoder = null;
     this.#gotKey = false;
     this.#frameNo = 0;
+    this.#teardownAudio();
   }
 
   #onMessage(ev: MessageEvent<ArrayBuffer>): void {
     const u8 = new Uint8Array(ev.data);
-    const isKey = u8[0] === 1;
+    const type = u8[0];
     const data = u8.subarray(1);
 
+    if (type === MSG_AUDIO_CONFIG) {
+      this.#initAudio(data);
+      return;
+    }
+    if (type === MSG_AUDIO) {
+      this.#onAudioFrame(data);
+      return;
+    }
+
+    const isKey = type === MSG_VIDEO_KEY;
     if (!this.#decoder) {
       if (!isKey) return;
       // A key unit starts [00 00 00 01][SPS] — the profile/compat/level bytes
@@ -312,7 +358,7 @@ export class RtspPlayer extends HTMLElement {
   }
 
   #initDecoder(codec: string): void {
-    this.#decoder = new VideoDecoder({
+    const decoder = new VideoDecoder({
       output: (frame: VideoFrame) => {
         if (this.#canvas.width !== frame.displayWidth) {
           this.#canvas.width = frame.displayWidth;
@@ -321,10 +367,168 @@ export class RtspPlayer extends HTMLElement {
         this.#ctx.drawImage(frame, 0, 0);
         frame.close();
       },
-      error: (e: DOMException) => this.#fail(`decode error: ${e.message}`),
+      error: (e: DOMException) =>
+        this.#fail(`decode error: ${e.message} [${codec}]`),
     });
     // No "description" in the config => the decoder accepts Annex-B directly.
-    this.#decoder.configure({ codec, optimizeForLatency: true });
+    decoder.configure({ codec, optimizeForLatency: true });
+    this.#decoder = decoder;
+
+    // Advisory: turn an eventual bare "Decoding error" into a useful message.
+    // Typical trap: 4:2:2 H.264 (profile 7a) from ffmpeg webcam captures
+    // without -pix_fmt yuv420p — browsers only decode 4:2:0 profiles.
+    void VideoDecoder.isConfigSupported({ codec })
+      .then((s) => {
+        if (!s.supported && this.#decoder === decoder)
+          this.#fail(
+            `H.264 profile ${codec} is not supported by this browser — ` +
+              "re-encode as 4:2:0 (e.g. ffmpeg -pix_fmt yuv420p)",
+          );
+      })
+      .catch(() => {});
+  }
+
+  /* ------------------------------- audio -------------------------------- */
+
+  #initAudio(raw: Uint8Array): void {
+    if (this.#audioDecoder || !("AudioDecoder" in window)) return;
+    let cfg: AudioConfigMessage;
+    try {
+      cfg = JSON.parse(new TextDecoder().decode(raw)) as AudioConfigMessage;
+    } catch {
+      return;
+    }
+
+    let ctx: AudioContext;
+    try {
+      ctx = new AudioContext({ sampleRate: cfg.sampleRate });
+    } catch {
+      ctx = new AudioContext(); // rate unsupported -> let Web Audio resample
+    }
+    const gain = ctx.createGain();
+    gain.gain.value = this.muted ? 0 : 1;
+    gain.connect(ctx.destination);
+
+    void ctx.resume();
+    if (ctx.state === "suspended") {
+      // Autoplay policy: wait for the first user gesture, then unmute output.
+      this.#resumeOnGesture = (): void => {
+        void this.#audioCtx?.resume();
+        this.#resumeOnGesture = null;
+      };
+      document.addEventListener("pointerdown", this.#resumeOnGesture, {
+        once: true,
+      });
+    }
+
+    const decoder = new AudioDecoder({
+      output: (frame: AudioData) => this.#playAudio(frame),
+      // Audio trouble should never take the picture down with it.
+      error: (e: DOMException) => {
+        console.warn("<rtsp-player> audio disabled:", e.message);
+        this.#teardownAudio();
+      },
+    });
+    try {
+      decoder.configure({
+        codec: cfg.codec,
+        sampleRate: cfg.sampleRate,
+        numberOfChannels: cfg.numberOfChannels,
+        ...(cfg.description
+          ? {
+              description: Uint8Array.from(atob(cfg.description), (c) =>
+                c.charCodeAt(0),
+              ),
+            }
+          : {}),
+      });
+    } catch (e) {
+      console.warn("<rtsp-player> audio codec unsupported:", cfg.codec, e);
+      void ctx.close();
+      return;
+    }
+
+    this.#audioCtx = ctx;
+    this.#audioGain = gain;
+    this.#audioDecoder = decoder;
+    this.#audioCfg = cfg;
+  }
+
+  #onAudioFrame(data: Uint8Array): void {
+    const decoder = this.#audioDecoder;
+    if (!decoder || decoder.state !== "configured") return;
+    try {
+      decoder.decode(
+        new EncodedAudioChunk({
+          type: "key", // every AAC/G.711/Opus frame decodes independently
+          timestamp: this.#audioTs,
+          data,
+        }),
+      );
+    } catch {
+      return;
+    }
+    this.#audioTs += this.#frameDurationUs(data.byteLength);
+  }
+
+  /** Nominal duration of one encoded frame, µs (decoder pacing only). */
+  #frameDurationUs(bytes: number): number {
+    const cfg = this.#audioCfg!;
+    if (cfg.codec === "mp4a.40.2") return 1024e6 / cfg.sampleRate; // AAC AU
+    if (cfg.codec === "opus") return 20_000; // typical Opus frame
+    return (bytes * 1e6) / (cfg.sampleRate * cfg.numberOfChannels); // G.711
+  }
+
+  /** Schedule a decoded AudioData right after the previously queued one. */
+  #playAudio(frame: AudioData): void {
+    const ctx = this.#audioCtx;
+    const gain = this.#audioGain;
+    if (!ctx || !gain || ctx.state === "closed") {
+      frame.close();
+      return;
+    }
+    let buf: AudioBuffer;
+    try {
+      buf = ctx.createBuffer(
+        frame.numberOfChannels,
+        frame.numberOfFrames,
+        frame.sampleRate,
+      );
+      const ch = new Float32Array(frame.numberOfFrames);
+      for (let c = 0; c < frame.numberOfChannels; c++) {
+        frame.copyTo(ch, { planeIndex: c, format: "f32-planar" });
+        buf.copyToChannel(ch, c);
+      }
+    } catch {
+      frame.close();
+      return;
+    }
+    frame.close();
+
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(gain);
+    // Chain buffers back to back; on underrun restart slightly ahead of "now".
+    const at = Math.max(ctx.currentTime + 0.05, this.#audioPlayhead);
+    src.start(at);
+    this.#audioPlayhead = at + buf.duration;
+  }
+
+  #teardownAudio(): void {
+    if (this.#audioDecoder && this.#audioDecoder.state !== "closed")
+      this.#audioDecoder.close();
+    this.#audioDecoder = null;
+    if (this.#resumeOnGesture) {
+      document.removeEventListener("pointerdown", this.#resumeOnGesture);
+      this.#resumeOnGesture = null;
+    }
+    if (this.#audioCtx && this.#audioCtx.state !== "closed")
+      void this.#audioCtx.close();
+    this.#audioCtx = null;
+    this.#audioGain = null;
+    this.#audioCfg = null;
+    this.#audioPlayhead = 0;
+    this.#audioTs = 0;
   }
 
   #fail(message: string): void {

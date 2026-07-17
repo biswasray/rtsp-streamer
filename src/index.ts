@@ -15,11 +15,21 @@
  *    connection); every streamRtsp() call returns a fresh access token.
  *  - New viewers immediately receive the last cached keyframe (SPS+PPS+IDR),
  *    so video starts without waiting for the camera's next IDR.
+ *  - If the SDP advertises an audio track in a supported codec (AAC via
+ *    mpeg4-generic, G.711 PCMU/PCMA, or Opus) it is SETUP on interleaved
+ *    channels 2-3 and forwarded too; audio failures degrade to video-only.
  *  - When a session has had no viewers for IDLE_MS it sends TEARDOWN and
  *    frees itself (its tokens become invalid).
  *
- * Wire format per WebSocket binary message:
- *   [1 byte: 1=key, 0=delta][Annex-B H.264 access unit]
+ * Wire format per WebSocket binary message — first byte is the type:
+ *   0  delta video   [Annex-B H.264 access unit]
+ *   1  key video     [Annex-B H.264 access unit]
+ *   2  audio config  [UTF-8 JSON: { codec, sampleRate, numberOfChannels,
+ *                     description? (base64) } — WebCodecs AudioDecoderConfig]
+ *   3  audio frame   [one encoded frame: raw AAC AU / G.711 bytes / Opus pkt]
+ *
+ * No cross-track timestamps are carried: this is a live view, both tracks are
+ * forwarded as they arrive, so A/V sync is delivery-order (typically < 100ms).
  */
 
 import * as net from "node:net";
@@ -35,11 +45,32 @@ const START = Buffer.from([0, 0, 0, 1]);
 const WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 const IDLE_MS = 60_000;
 
+// WebSocket message types (first payload byte) — mirrored in rtsp-player.ts.
+const MSG_VIDEO_DELTA = 0;
+const MSG_VIDEO_KEY = 1;
+const MSG_AUDIO_CONFIG = 2;
+const MSG_AUDIO = 3;
+
 interface DigestParams {
   realm: string;
   nonce: string;
   qop: string | null;
   opaque: string | null;
+}
+
+interface AudioTrack {
+  /** WebCodecs codec string: "mp4a.40.2" | "ulaw" | "alaw" | "opus". */
+  codec: string;
+  sampleRate: number;
+  channels: number;
+  /** AudioSpecificConfig from fmtp `config=` (AAC only). */
+  description: Buffer | null;
+  /** Absolute SETUP URL, resolved against Content-Base. */
+  trackUrl: string;
+  /** RTP payload needs AU-header depacketization (AAC / RFC 3640). */
+  aac: boolean;
+  /** Bits of each AU-header holding the AU size (fmtp sizelength, def. 13). */
+  sizeLength: number;
 }
 
 type AuthMode = "basic" | "digest" | null;
@@ -67,8 +98,8 @@ function wsFrame(payload: Buffer): Buffer {
   return Buffer.concat([header, payload]);
 }
 
-function tagged(isKey: boolean, annexb: Buffer): Buffer {
-  return Buffer.concat([Buffer.from([isKey ? 1 : 0]), annexb]);
+function tagged(type: number, payload: Buffer): Buffer {
+  return Buffer.concat([Buffer.from([type]), payload]);
 }
 
 /* ---------------------------- RTSP session ----------------------------- */
@@ -88,6 +119,22 @@ class RtspSession {
   private sps: Buffer | null = null;
   private pps: Buffer | null = null;
   private lastKeyUnit: Buffer | null = null;
+
+  // Access unit being assembled: one frame may span several NALs (x264
+  // sliced-threads, e.g. ffmpeg -tune zerolatency, emits multiple slices).
+  private auNals: Buffer[] = [];
+  private auHasIdr = false;
+  private auRtpTs = -1;
+
+  private audio: AudioTrack | null = null;
+  private audioSetUp = false; // audio SETUP request sent this connection
+  private audioConfigMsg: Buffer | null = null; // cached tagged() message
+
+  // Actual interleaved RTP channels, learned from each SETUP response's
+  // Transport header (the server, not the client, picks them — RFC 2326).
+  // Default to our requested channels for servers that omit them.
+  private videoCh = 0;
+  private audioCh = 2;
 
   private cseq = 0;
   private session: string | null = null;
@@ -132,8 +179,11 @@ class RtspSession {
       this.idleTimer = null;
     }
 
+    // Tell the newcomer how to decode audio before any audio frame arrives.
+    if (this.audioConfigMsg) socket.write(wsFrame(this.audioConfigMsg));
     // Instant start: replay the last keyframe access unit to the newcomer.
-    if (this.lastKeyUnit) socket.write(wsFrame(tagged(true, this.lastKeyUnit)));
+    if (this.lastKeyUnit)
+      socket.write(wsFrame(tagged(MSG_VIDEO_KEY, this.lastKeyUnit)));
 
     socket.on("data", (d: Buffer) => {
       // minimal client-frame handling
@@ -184,6 +234,12 @@ class RtspSession {
     this.fuBuf = null;
     this.session = null;
     this.authRetries = 0;
+    this.audioSetUp = false; // re-negotiated by the next DESCRIBE/SETUP
+    this.videoCh = 0;
+    this.audioCh = 2;
+    this.auNals = [];
+    this.auHasIdr = false;
+    this.auRtpTs = -1;
 
     this.sock = net.createConnection(this.port, this.host, () => {
       console.log(`[rtsp] connected ${this.host}:${this.port}`);
@@ -263,6 +319,60 @@ class RtspSession {
     return `Digest username="${this.user}", realm="${dp.realm}", nonce="${dp.nonce}", uri="${url}", response="${response}", algorithm=MD5${extra}`;
   }
 
+  /**
+   * Pick a supported codec out of an SDP audio media section (the text after
+   * "m=audio ..."). Returns null when nothing we can forward is offered.
+   */
+  private parseAudio(sec: string): AudioTrack | null {
+    const control = sec.match(/a=control:(\S+)/)?.[1] ?? "trackID=1";
+    const trackUrl = /^rtsp:\/\//i.test(control)
+      ? control
+      : `${this.contentBase}/${control}`;
+
+    for (const m of sec.matchAll(
+      /a=rtpmap:(\d+)\s+([A-Za-z0-9-]+)\/(\d+)(?:\/(\d+))?/g,
+    )) {
+      const enc = m[2]!.toLowerCase();
+      const sampleRate = Number(m[3]);
+      const channels = m[4] ? Number(m[4]) : 1;
+      const base = { sampleRate, channels, trackUrl, sizeLength: 13 };
+      if (enc === "mpeg4-generic") {
+        // AAC (RFC 3640). The AudioSpecificConfig comes from fmtp config=.
+        const fmtp =
+          sec.match(new RegExp(`a=fmtp:${m[1]}\\s+([^\\r\\n]+)`))?.[1] ?? "";
+        const cfg = fmtp.match(/config=([0-9A-Fa-f]+)/)?.[1];
+        if (!cfg) continue;
+        return {
+          ...base,
+          codec: "mp4a.40.2",
+          description: Buffer.from(cfg, "hex"),
+          aac: true,
+          sizeLength: Number(fmtp.match(/sizelength=(\d+)/i)?.[1] ?? 13),
+        };
+      }
+      if (enc === "pcmu")
+        return { ...base, codec: "ulaw", description: null, aac: false };
+      if (enc === "pcma")
+        return { ...base, codec: "alaw", description: null, aac: false };
+      if (enc === "opus")
+        return { ...base, codec: "opus", description: null, aac: false };
+    }
+
+    // Static payload types (no rtpmap line): 0 = PCMU/8000, 8 = PCMA/8000.
+    const types = sec.match(/^audio\s+\d+\s+\S+\s+([\d ]+)/)?.[1]?.split(" ");
+    const common = {
+      sampleRate: 8000,
+      channels: 1,
+      description: null,
+      trackUrl,
+      aac: false,
+      sizeLength: 13,
+    };
+    if (types?.includes("0")) return { ...common, codec: "ulaw" };
+    if (types?.includes("8")) return { ...common, codec: "alaw" };
+    return null;
+  }
+
   private pump(): void {
     while (this.buf.length) {
       if (this.buf[0] === 0x24) {
@@ -273,7 +383,8 @@ class RtspSession {
         const ch = this.buf[1];
         const pkt = this.buf.subarray(4, 4 + len);
         this.buf = this.buf.subarray(4 + len);
-        if (ch === 0) this.handleRTP(pkt);
+        if (ch === this.videoCh) this.handleRTP(pkt);
+        else if (this.audio && ch === this.audioCh) this.handleAudioRTP(pkt);
       } else {
         // RTSP text response
         const he = this.buf.indexOf("\r\n\r\n");
@@ -305,6 +416,14 @@ class RtspSession {
       return;
     }
     if (status !== 200) {
+      // A camera that refuses the audio SETUP shouldn't cost us the video.
+      if (this.lastMethod === "SETUP" && this.audioSetUp && this.audio) {
+        console.warn(`[rtsp] ${status} on audio SETUP — continuing video-only`);
+        this.audio = null;
+        this.audioConfigMsg = null;
+        this.send("PLAY", this.contentBase, { Range: "npt=0.000-" });
+        return;
+      }
       console.error(`[rtsp] ${status} on ${this.lastMethod}`);
       this.sock?.end();
       return;
@@ -322,7 +441,8 @@ class RtspSession {
       case "DESCRIBE": {
         const cb = head.match(/Content-Base:\s*(\S+)/i);
         if (cb?.[1]) this.contentBase = cb[1].replace(/\/$/, "");
-        const vid = body.split(/^m=/m).find((x) => x.startsWith("video"));
+        const sections = body.split(/^m=/m);
+        const vid = sections.find((x) => x.startsWith("video"));
         const control = vid?.match(/a=control:(\S+)/)?.[1] ?? "trackID=0";
         const trackUrl = /^rtsp:\/\//i.test(control)
           ? control
@@ -333,15 +453,60 @@ class RtspSession {
           if (a) this.sps = a;
           if (b) this.pps = b;
         }
+
+        const aud = sections.find((x) => x.startsWith("audio"));
+        this.audio = aud ? this.parseAudio(aud) : null;
+        if (this.audio) {
+          this.audioConfigMsg = tagged(
+            MSG_AUDIO_CONFIG,
+            Buffer.from(
+              JSON.stringify({
+                codec: this.audio.codec,
+                sampleRate: this.audio.sampleRate,
+                numberOfChannels: this.audio.channels,
+                ...(this.audio.description
+                  ? { description: this.audio.description.toString("base64") }
+                  : {}),
+              }),
+            ),
+          );
+          // Existing viewers (camera reconnect) need the new config too.
+          for (const c of this.clients) c.write(wsFrame(this.audioConfigMsg));
+          console.log(
+            `[rtsp] audio: ${this.audio.codec} ${this.audio.sampleRate}Hz x${this.audio.channels} ${this.host}`,
+          );
+        } else {
+          this.audioConfigMsg = null;
+        }
+
         this.send("SETUP", trackUrl, {
           Transport: "RTP/AVP/TCP;unicast;interleaved=0-1",
         });
         break;
       }
 
-      case "SETUP":
-        this.send("PLAY", this.contentBase, { Range: "npt=0.000-" });
+      case "SETUP": {
+        // The server picks the interleaved channels and echoes them here; trust
+        // that, not our request (ffmpeg may order audio before video in the SDP,
+        // so audio can land on 0-1 and video on 2-3). Route by the real numbers.
+        const rtpCh = Number(head.match(/interleaved=(\d+)/i)?.[1] ?? NaN);
+        if (this.audio && !this.audioSetUp) {
+          // Response to the video SETUP -> now SETUP audio, then PLAY.
+          if (Number.isFinite(rtpCh)) this.videoCh = rtpCh;
+          this.audioSetUp = true;
+          this.send("SETUP", this.audio.trackUrl, {
+            Transport: "RTP/AVP/TCP;unicast;interleaved=2-3",
+          });
+        } else {
+          // Response to the audio SETUP (or the sole video SETUP when muted).
+          if (Number.isFinite(rtpCh)) {
+            if (this.audio) this.audioCh = rtpCh;
+            else this.videoCh = rtpCh;
+          }
+          this.send("PLAY", this.contentBase, { Range: "npt=0.000-" });
+        }
         break;
+      }
 
       case "PLAY":
         console.log(`[rtsp] playing ${this.host}`);
@@ -354,17 +519,31 @@ class RtspSession {
     }
   }
 
-  /* --------------------- RTP -> H.264 access units ---------------------- */
+  /* ---------------------- RTP -> media frames --------------------------- */
 
-  private handleRTP(pkt: Buffer): void {
-    if (pkt.length < 12 || (pkt[0] ?? 0) >> 6 !== 2) return;
+  /** Strip the RTP fixed header, CSRCs and extension; null if malformed. */
+  private rtpPayload(pkt: Buffer): Buffer | null {
+    if (pkt.length < 12 || (pkt[0] ?? 0) >> 6 !== 2) return null;
     let off = 12 + ((pkt[0] ?? 0) & 0x0f) * 4;
     if (((pkt[0] ?? 0) >> 4) & 1) {
-      if (pkt.length < off + 4) return;
+      if (pkt.length < off + 4) return null;
       off += 4 + pkt.readUInt16BE(off + 2) * 4;
     }
-    if (pkt.length <= off) return;
-    const p = pkt.subarray(off);
+    if (pkt.length <= off) return null;
+    return pkt.subarray(off);
+  }
+
+  private handleRTP(pkt: Buffer): void {
+    const p = this.rtpPayload(pkt);
+    if (!p) return;
+
+    // RFC 6184: one access unit may span several packets and several slices.
+    // Slices are collected until the marker bit (last packet of the AU); a
+    // change of RTP timestamp also flushes, for encoders that skip the marker.
+    const rtpTs = pkt.readUInt32BE(4);
+    if (this.auNals.length && rtpTs !== this.auRtpTs) this.flushAU();
+    this.auRtpTs = rtpTs;
+
     const t = (p[0] ?? 0) & 0x1f;
 
     if (t >= 1 && t <= 23) {
@@ -395,6 +574,35 @@ class RtspSession {
         i += sz;
       }
     }
+
+    if ((pkt[1] ?? 0) & 0x80) this.flushAU(); // marker: AU complete
+  }
+
+  private handleAudioRTP(pkt: Buffer): void {
+    const a = this.audio;
+    if (!a) return;
+    const p = this.rtpPayload(pkt);
+    if (!p) return;
+
+    if (!a.aac) {
+      // G.711 / Opus: the payload is exactly one frame.
+      this.broadcast(MSG_AUDIO, p);
+      return;
+    }
+
+    // AAC (RFC 3640 AAC-hbr): [16-bit AU-headers length in bits][AU headers]
+    // [AUs]. Each AU header carries the AU size in its top `sizeLength` bits.
+    if (p.length < 2) return;
+    const headersLen = (p.readUInt16BE(0) + 7) >> 3;
+    let hdr = 2;
+    let off = 2 + headersLen;
+    while (hdr + 2 <= 2 + headersLen && off < p.length) {
+      const size = p.readUInt16BE(hdr) >> (16 - a.sizeLength);
+      if (size === 0 || off + size > p.length) break;
+      this.broadcast(MSG_AUDIO, p.subarray(off, off + size));
+      hdr += 2;
+      off += size;
+    }
   }
 
   private onNAL(nal: Buffer): void {
@@ -407,27 +615,29 @@ class RtspSession {
       this.pps = Buffer.from(nal);
       return;
     }
-    if (t === 5) {
-      // IDR -> key access unit
-      if (!this.sps || !this.pps) return;
-      const unit = Buffer.concat([
-        START,
-        this.sps,
-        START,
-        this.pps,
-        START,
-        nal,
-      ]);
-      this.lastKeyUnit = unit; // cache for late joiners
-      this.broadcast(true, unit);
-    } else if (t === 1) {
-      this.broadcast(false, Buffer.concat([START, nal]));
-    }
+    if (t !== 5 && t !== 1) return; // SEI/AUD/filler — not part of the AU
+    if (t === 5) this.auHasIdr = true;
+    this.auNals.push(Buffer.from(nal)); // slice of the current access unit
   }
 
-  private broadcast(isKey: boolean, annexb: Buffer): void {
+  /** Emit the collected slices as ONE complete access unit. */
+  private flushAU(): void {
+    if (!this.auNals.length) return;
+    const nals = this.auNals;
+    this.auNals = [];
+    const isKey = this.auHasIdr;
+    this.auHasIdr = false;
+    if (isKey && (!this.sps || !this.pps)) return; // not decodable yet
+    const parts: Buffer[] = isKey ? [START, this.sps!, START, this.pps!] : [];
+    for (const n of nals) parts.push(START, n);
+    const unit = Buffer.concat(parts);
+    if (isKey) this.lastKeyUnit = unit; // cache for late joiners
+    this.broadcast(isKey ? MSG_VIDEO_KEY : MSG_VIDEO_DELTA, unit);
+  }
+
+  private broadcast(type: number, payload: Buffer): void {
     if (!this.clients.size) return;
-    const frame = wsFrame(tagged(isKey, annexb));
+    const frame = wsFrame(tagged(type, payload));
     for (const c of this.clients) c.write(frame);
   }
 }

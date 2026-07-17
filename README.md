@@ -19,6 +19,9 @@ RTSP camera ──TCP──▶ streamRtsp() ──WebSocket──▶ <rtsp-playe
   to every viewer; each `streamRtsp()` call returns a fresh access token.
 - **Instant start.** New viewers immediately receive the last cached keyframe,
   so video appears without waiting for the camera's next IDR.
+- **Audio.** AAC, G.711 (PCMU/PCMA) and Opus tracks are forwarded and played
+  via WebCodecs + Web Audio; audio problems degrade to video-only, never a
+  dead player.
 - **Basic & Digest auth**, automatic reconnect, and idle teardown (a session
   with no viewers for 60s disconnects from the camera).
 - **Batteries-included client.** The `<rtsp-player>` element is served straight
@@ -35,8 +38,9 @@ npm install rtsp-streamer
 
 - **Server:** Node.js 18+.
 - **Browser:** a WebCodecs-capable browser (Chrome/Edge 94+, Safari 16.4+).
-- **Camera:** an H.264 (AVC) RTSP stream. HEVC/H.265 and audio are not
-  decoded — the transport is video-only today.
+- **Camera:** an H.264 (AVC) RTSP video stream — HEVC/H.265 is not decoded.
+  Audio is forwarded when the camera offers AAC (`mpeg4-generic`), G.711
+  (PCMU/PCMA) or Opus; other audio codecs are ignored.
 
 ## Quick start
 
@@ -138,15 +142,19 @@ pipeline so the script is available on the very first page load.
 
 ### Wire format
 
-Each WebSocket binary message is a 1-byte keyframe flag followed by one Annex-B
-H.264 access unit:
+The first byte of each WebSocket binary message is the message type:
 
 ```
-[1 byte: 1 = key, 0 = delta][00 00 00 01 ...NAL units...]
+0  delta video   [Annex-B H.264 access unit]
+1  key video     [Annex-B H.264 access unit]
+2  audio config  [UTF-8 JSON: { codec, sampleRate, numberOfChannels,
+                  description? (base64) } — a WebCodecs AudioDecoderConfig]
+3  audio frame   [one encoded frame: raw AAC AU / G.711 bytes / Opus packet]
 ```
 
-You only need this if you are writing your own client instead of using
-`<rtsp-player>`.
+No cross-track timestamps are carried — it's a live view; both tracks are
+forwarded as they arrive. You only need this if you are writing your own client
+instead of using `<rtsp-player>`.
 
 ## The `<rtsp-player>` element
 
@@ -163,8 +171,12 @@ All attributes are reflected as properties (`player.src`, `player.autoplay`, …
 | `width`    | string  | —             | CSS width of the video surface (px if unitless).       |
 | `height`   | string  | —             | CSS height of the video surface (px if unitless).      |
 | `autoplay` | boolean | `false`       | Play as soon as the element connects or `src` changes. |
-| `muted`    | boolean | `false`       | Present for `<video>` parity; transport is video-only. |
+| `muted`    | boolean | `false`       | Mute audio output. Toggleable live, like `<video>`.    |
 | `api`      | string  | `/api/stream` | Endpoint that mints a stream token from an `rtspUrl`.  |
+
+Browsers keep audio suspended until a user gesture: starting playback from a
+click works immediately, while `autoplay` streams stay silent until the first
+pointer interaction (video is unaffected).
 
 ### Methods
 
