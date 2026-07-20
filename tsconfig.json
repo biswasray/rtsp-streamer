@@ -22,6 +22,6 @@
     "resolveJsonModule": true
   },
   "include": ["src/**/*"],
-  // src/html is browser code — built by tsconfig.html.json.
-  "exclude": ["node_modules", "dist", "src/html"]
+  // src/html and src/react are browser code — built by their own tsconfigs.
+  "exclude": ["node_modules", "dist", "src/html", "src/react"]
 }

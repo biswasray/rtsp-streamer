@@ -206,6 +206,45 @@ The element expects your server to answer its `api` endpoint with the shape
 POST /api/stream  { "rtspUrl": "rtsp://…" }  ->  { "path": "/stream/<token>" }
 ```
 
+## React
+
+The same player as a component, for apps that would rather not register a custom
+element. React is an optional peer dependency; nothing else is added.
+
+```jsx
+import { RtspPlayer } from "rtsp-streamer/react";
+
+<RtspPlayer src="rtsp://user:pass@cam/stream1" width={960} autoPlay muted />;
+```
+
+Props mirror the element's attributes — `src`, `width`, `height`, `autoPlay`,
+`muted`, `api` — plus `className`, `style`, `hideStatus` (drop the built-in
+status overlay) and `children` (rendered above the canvas). The element's events
+become callbacks: `onPlaying`, `onStopped`, `onError(message)`,
+`onStateChange(state)`. A `ref` exposes `play(src?)`, `stop()`, `state` and
+`playing`.
+
+For custom chrome, use the hook and render your own markup:
+
+```jsx
+import { useRtspPlayer } from "rtsp-streamer/react";
+
+function Camera({ src }) {
+  const { canvasRef, state, status, play, stop } = useRtspPlayer({ src });
+  return (
+    <>
+      <canvas ref={canvasRef} />
+      <button onClick={() => (state === "playing" ? stop() : play())}>
+        {status}
+      </button>
+    </>
+  );
+}
+```
+
+`RtspEngine` — the framework-free core both of the above are built on (socket,
+WebCodecs decoders, Web Audio; you supply the `<canvas>`) — is exported too.
+
 ## Framework examples
 
 Runnable servers for the raw `http` module, Express, Fastify, and NestJS live in

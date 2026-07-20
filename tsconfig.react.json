@@ -1,0 +1,24 @@
+{
+  // React binding in src/react: browser DOM + WebCodecs + JSX, ESM output.
+  // Ships as source-compatible ESM (React is a peer dependency, never bundled).
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": [],
+    "jsx": "react-jsx",
+    "outDir": "./dist/react",
+    "rootDir": "./src/react",
+    "declaration": true,
+    "sourceMap": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/react/**/*"]
+}
