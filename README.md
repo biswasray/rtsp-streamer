@@ -248,24 +248,32 @@ WebCodecs decoders, Web Audio; you supply the `<canvas>`) — is exported too.
 ## Framework examples
 
 Runnable servers for the raw `http` module, Express, Fastify, and NestJS live in
-[`examples/`](./examples). Each hands its underlying `http.Server` to
-`streamRtsp()` and serves the demo page from `examples/public`.
+[`examples/`](./examples) — see the [examples index](./examples/README.md) for
+the full overview. Each hands its underlying `http.Server` to `streamRtsp()` and
+serves the [shared demo page](./examples/public/README.md) from `examples/public`.
+
+Build once (`npm run build`), then run any server and open
+<http://localhost:8080>:
 
 ```bash
-npm run examples:http      # plain node:http
-npm run examples:express   # Express
-npm run examples:fastify   # Fastify
-npm run examples:nest      # NestJS
+npm run examples:http      # plain node:http  → examples/http
+npm run examples:express   # Express          → examples/express
+npm run examples:fastify   # Fastify          → examples/fastify
+npm run examples:nest      # NestJS           → examples/nest
 ```
 
-Then open <http://localhost:8080>, paste an RTSP URL, and press **Play**.
+Each folder has its own walkthrough:
+[`http`](./examples/http/README.md) ·
+[`express`](./examples/express/README.md) ·
+[`fastify`](./examples/fastify/README.md) ·
+[`nest`](./examples/nest/README.md) ·
+[`react`](./examples/react/README.md).
 
-[`examples/react`](./examples/react) is the odd one out: a Vite app using
-`rtsp-streamer/react` instead of the element. It ships no server of its own —
-it reuses any of the servers above for the API and WebSocket (the commands use
-`examples:express`) — so it runs as two processes (the API server on `:8080`,
-Vite on `:5173`) and needs its own `npm install`. See its
-[README](./examples/react/README.md).
+[`examples/react`](./examples/react/README.md) is the odd one out: a Vite app
+using `rtsp-streamer/react` instead of the element. It ships no server of its
+own — it reuses any of the servers above for the API and WebSocket — so it runs
+as two processes (the backend on `:8080`, Vite on `:5173`) and needs its own
+`npm install`.
 
 The key detail across frameworks: the WebSocket `upgrade` is handled on the raw
 `http.Server`, so build the server explicitly (e.g. `http.createServer(app)` for

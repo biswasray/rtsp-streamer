@@ -12,18 +12,24 @@ client needs — so it just reuses one. The commands below use `express`; swap i
 
 ## Run
 
-From the repo root, build the package once so `dist/` exists:
+From the repo root, build the package once so `dist/` exists, and install this
+example's own dependencies (React, Vite):
 
 ```bash
-npm run build
+npm run build                       # builds dist/ (once)
+npm --prefix examples/react install # installs this example's deps (once)
 ```
 
-Then, in two terminals:
+Then, in two terminals from the repo root:
 
 ```bash
-npm run examples:express                       # API + WebSocket on :8080
-cd examples/react && npm install && npm run dev   # Vite on :5173
+npm run examples:express   # backend: API + WebSocket on :8080
+npm run examples:react     # client: Vite dev server on :5173
 ```
+
+Swap `examples:express` for `examples:http`, `examples:fastify` or
+`examples:nest` — any of them works. (`npm run examples:react` is just
+`cd examples/react && npm run dev`.)
 
 Open <http://localhost:5173>, paste an RTSP URL, and press **Play**. No camera
 handy? See "Local testing" in the root README for a MediaMTX + ffmpeg webcam
