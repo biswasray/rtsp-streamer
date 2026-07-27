@@ -13,14 +13,14 @@ browser client in [`public/`](./public) and all listen on **`:8080`**. The
 `react` and `angular` examples are the exceptions — each renders its own client
 (Vite / the Angular CLI) and reuses one of the servers for the backend.
 
-| Example                     | Framework                      | Command                    |
-| --------------------------- | ------------------------------ | -------------------------- |
-| [`http`](./http)            | Node `http` (no framework)     | `npm run examples:http`      |
-| [`express`](./express)      | Express                        | `npm run examples:express`   |
-| [`fastify`](./fastify)      | Fastify                        | `npm run examples:fastify`   |
-| [`nest`](./nest)            | NestJS (Express platform)      | `npm run examples:nest`      |
-| [`react`](./react)          | Vite + `rtsp-streamer/react`   | see its [README](./react/README.md)   |
-| [`angular`](./angular)      | Angular CLI + `rtsp-streamer/angular` | see its [README](./angular/README.md) |
+| Example                | Framework                             | Command                               |
+| ---------------------- | ------------------------------------- | ------------------------------------- |
+| [`http`](./http)       | Node `http` (no framework)            | `npm run examples:http`               |
+| [`express`](./express) | Express                               | `npm run examples:express`            |
+| [`fastify`](./fastify) | Fastify                               | `npm run examples:fastify`            |
+| [`nest`](./nest)       | NestJS (Express platform)             | `npm run examples:nest`               |
+| [`react`](./react)     | Vite + `rtsp-streamer/react`          | see its [README](./react/README.md)   |
+| [`angular`](./angular) | Angular CLI + `rtsp-streamer/angular` | see its [README](./angular/README.md) |
 
 ## Prerequisite
 
@@ -40,12 +40,12 @@ press **Play**. No camera handy? See "Local testing" in the
 The WebSocket `upgrade` is handled on the raw `http.Server`, so each example
 obtains that server explicitly and hands **it** to `streamRtsp()`:
 
-| Example   | How the `http.Server` is obtained     |
-| --------- | ------------------------------------- |
-| `http`    | `http.createServer(handler)`          |
-| `express` | `http.createServer(app)`              |
-| `fastify` | `app.server`                          |
-| `nest`    | `app.getHttpServer()`                 |
+| Example   | How the `http.Server` is obtained |
+| --------- | --------------------------------- |
+| `http`    | `http.createServer(handler)`      |
+| `express` | `http.createServer(app)`          |
+| `fastify` | `app.server`                      |
+| `nest`    | `app.getHttpServer()`             |
 
 The framework keeps ownership of the ordinary HTTP routes; `streamRtsp()` only
 adds the upgrade handler and serves `/rtsp-player.js` ahead of them.

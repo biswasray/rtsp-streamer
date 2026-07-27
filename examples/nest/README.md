@@ -29,7 +29,7 @@ Open <http://localhost:8080>, paste an RTSP URL, and press **Play**.
   bootstrap with `app.getHttpServer()` and hand it to `streamRtsp()` for the
   `upgrade` handler.
 - This example is run with **tsx/esbuild**, which does not emit decorator
-  *metadata* (`design:paramtypes`). So it avoids constructor-based dependency
+  _metadata_ (`design:paramtypes`). So it avoids constructor-based dependency
   injection and shares the `http.Server` through a module-scoped variable set in
   `bootstrap()`. A normal `nest build` (with `emitDecoratorMetadata`) would let
   you inject it instead.

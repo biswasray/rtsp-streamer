@@ -1,7 +1,10 @@
 {
   "name": "rtsp-streamer",
   "version": "1.0.0",
-  "description": "",
+  "description": "Zero-dependency RTSP-to-browser streaming over WebSocket, with a WebCodecs <rtsp-player> element and React/Angular bindings — no ffmpeg, no native addons, no media server.",
+  "engines": {
+    "node": ">=18"
+  },
   "main": "dist/index.js",
   "module": "dist/esm/index.js",
   "types": "dist/index.d.ts",
@@ -49,13 +52,29 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "prepublishOnly": "npm run build"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/biswasray/rtsp-streamer.git"
   },
-  "keywords": [],
+  "keywords": [
+    "rtsp",
+    "rtp",
+    "websocket",
+    "webcodecs",
+    "h264",
+    "streaming",
+    "video",
+    "live-video",
+    "ip-camera",
+    "camera",
+    "player",
+    "react",
+    "angular",
+    "zero-dependency"
+  ],
   "author": "Subhasish Biswasray",
   "license": "ISC",
   "type": "commonjs",

@@ -39,7 +39,10 @@ import type { PlayerState } from "../react/rtsp-engine.js";
   template: `
     <canvas #canvas class="rtsp-player__canvas"></canvas>
     @if (!hideStatus && state !== "playing") {
-      <div class="rtsp-player__status" [class.rtsp-player__status--error]="state === 'error'">
+      <div
+        class="rtsp-player__status"
+        [class.rtsp-player__status--error]="state === 'error'"
+      >
         {{ status }}
       </div>
     }
@@ -66,7 +69,9 @@ import type { PlayerState } from "../react/rtsp-engine.js";
         position: absolute;
         inset: auto 0 0 0;
         padding: 6px 10px;
-        font: 12px/1.4 system-ui, sans-serif;
+        font:
+          12px/1.4 system-ui,
+          sans-serif;
         color: #8a8a94;
         background: linear-gradient(transparent, rgba(0, 0, 0, 0.6));
       }
