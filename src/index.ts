@@ -712,13 +712,18 @@ const DEFAULT_PLAYER_PATH = "/rtsp-player.js";
 // scripts/build-assets.mjs) rather than read from disk, so it serves the same
 // bytes from both the CJS and ESM builds without any __dirname / import.meta
 // path resolution.
-const ASSETS: Record<string, { body: Buffer; type: string }> = {
+// Encoded once as UTF-8 bytes. Using TextEncoder (not Buffer.from) keeps the
+// type a plain Uint8Array across @types/node versions — newer ones make Buffer
+// generic, which tripped no-unsafe-assignment here. res.end() and
+// Content-Length both treat a Uint8Array exactly like a Buffer.
+const encoder = new TextEncoder();
+const ASSETS: Record<string, { body: Uint8Array; type: string }> = {
   "rtsp-player.js": {
-    body: Buffer.from(RTSP_PLAYER_JS),
+    body: encoder.encode(RTSP_PLAYER_JS),
     type: "text/javascript; charset=utf-8",
   },
   "rtsp-player.js.map": {
-    body: Buffer.from(RTSP_PLAYER_JS_MAP),
+    body: encoder.encode(RTSP_PLAYER_JS_MAP),
     type: "application/json; charset=utf-8",
   },
 };
