@@ -1,0 +1,33 @@
+{
+  // Angular binding in src/angular: browser DOM + WebCodecs + Angular
+  // decorators, ESM output. Ships as source-compatible ESM; Angular is an
+  // optional peer dependency, never bundled.
+  //
+  // rootDir is ./src (not ./src/angular) so the shared, framework-free
+  // RtspEngine in src/react can be compiled in alongside the component — the
+  // React binding owns that file, this build just reuses it. That nests the
+  // output as dist/angular/angular/* and dist/angular/react/rtsp-engine.js;
+  // the "./angular" export in package.json points at the nested index.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": [],
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "useDefineForClassFields": false,
+    "outDir": "./dist/angular",
+    "rootDir": "./src",
+    "declaration": true,
+    "sourceMap": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/angular/**/*", "src/react/rtsp-engine.ts"]
+}

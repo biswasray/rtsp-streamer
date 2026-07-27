@@ -19,15 +19,20 @@
       "types": "./dist/react/index.d.ts",
       "default": "./dist/react/index.js"
     },
+    "./angular": {
+      "types": "./dist/angular/angular/index.d.ts",
+      "default": "./dist/angular/angular/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "npm run build:assets && npm run build:cjs && npm run build:esm && npm run build:react && node scripts/finalize-dist.mjs",
+    "build": "npm run build:assets && npm run build:cjs && npm run build:esm && npm run build:react && npm run build:angular && node scripts/finalize-dist.mjs",
     "build:html": "tsc -p tsconfig.html.json",
     "build:react": "tsc -p tsconfig.react.json",
+    "build:angular": "tsc -p tsconfig.angular.json",
     "build:assets": "npm run build:html && node scripts/build-assets.mjs",
     "build:cjs": "tsc -p tsconfig.json",
     "build:esm": "tsc -p tsconfig.esm.json",
@@ -38,7 +43,7 @@
     "examples:fastify": "tsx examples/fastify/server.ts",
     "examples:nest": "tsx --tsconfig examples/nest/tsconfig.json examples/nest/server.ts",
     "examples:react": "cd examples/react && npm run dev",
-    "typecheck": "npm run build:assets && tsc -p tsconfig.json --noEmit && tsc -p tsconfig.esm.json --noEmit && tsc -p tsconfig.react.json --noEmit",
+    "typecheck": "npm run build:assets && tsc -p tsconfig.json --noEmit && tsc -p tsconfig.esm.json --noEmit && tsc -p tsconfig.react.json --noEmit && tsc -p tsconfig.angular.json --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
@@ -58,14 +63,19 @@
   },
   "homepage": "https://github.com/biswasray/rtsp-streamer#readme",
   "peerDependencies": {
+    "@angular/core": ">=17",
     "react": ">=18"
   },
   "peerDependenciesMeta": {
+    "@angular/core": {
+      "optional": true
+    },
     "react": {
       "optional": true
     }
   },
   "devDependencies": {
+    "@angular/core": "^19.0.0",
     "@types/react": "^19.2.2",
     "react": "^19.2.0",
     "@eslint/js": "^10.0.1",

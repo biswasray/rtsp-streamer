@@ -245,6 +245,55 @@ function Camera({ src }) {
 `RtspEngine` — the framework-free core both of the above are built on (socket,
 WebCodecs decoders, Web Audio; you supply the `<canvas>`) — is exported too.
 
+## Angular
+
+The same player as a standalone Angular component. Angular is an optional peer
+dependency (`>=17`); nothing else is added.
+
+```ts
+import { Component } from "@angular/core";
+import { RtspPlayerComponent } from "rtsp-streamer/angular";
+
+@Component({
+  standalone: true,
+  imports: [RtspPlayerComponent],
+  template: `
+    <rtsp-player
+      src="rtsp://user:pass@cam/stream1"
+      [width]="960"
+      autoPlay
+      muted
+    ></rtsp-player>
+  `,
+})
+export class CameraComponent {}
+```
+
+Inputs mirror the element's attributes — `src`, `width`, `height`, `autoPlay`,
+`muted`, `api`, plus `hideStatus` (drop the built-in status overlay). Projected
+content (`<ng-content>`) renders above the canvas. The element's events become
+`@Output()`s: `playing`, `stopped`, `error` (emits the message), `stateChange`
+(emits the state). Grab the component with a template ref or `@ViewChild` for the
+imperative `play(src?)` / `stop()` methods and the read-only `state`.
+
+```ts
+@ViewChild(RtspPlayerComponent) player!: RtspPlayerComponent;
+// this.player.play("rtsp://user:pass@cam/stream1"); this.player.stop();
+```
+
+The component's selector is `rtsp-player` — the same tag as the bundled custom
+element. Use one or the other in a given app, never both (don't also load
+`/rtsp-player.js`). For custom chrome, import `RtspEngine` from
+`rtsp-streamer/angular` and drive your own `<canvas>`.
+
+> **Build note.** This binding is compiled with plain `tsc` (like the React
+> one), not the Angular compiler, so it is not Ivy/AOT-precompiled. It works
+> under Angular's JIT compiler; consuming it from a default AOT build needs the
+> component compiled from source (e.g. a path mapping into `src/angular`). A
+> proper partial-Ivy package build (`ngc --compilationMode partial` /
+> `ng-packagr`) is the long-term fix but currently blocked by the repo's
+> bleeding-edge TypeScript version, which the Angular compiler rejects.
+
 ## Framework examples
 
 Runnable servers for the raw `http` module, Express, Fastify, and NestJS live in

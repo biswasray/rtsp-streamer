@@ -16,9 +16,10 @@ export default tseslint.config(
   },
   js.configs.recommended,
   {
-    // Node library source (src/html and src/react are browser code — below).
+    // Node library source (src/html, src/react, src/angular are browser code
+    // — configured below).
     files: ["src/**/*.ts"],
-    ignores: ["src/html/**", "src/react/**"],
+    ignores: ["src/html/**", "src/react/**", "src/angular/**"],
     extends: [...tseslint.configs.recommendedTypeChecked],
     languageOptions: {
       parserOptions: {
@@ -53,6 +54,19 @@ export default tseslint.config(
       globals: globals.browser,
       parserOptions: {
         project: "./tsconfig.react.json",
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+  },
+  {
+    // Angular binding: DOM + WebCodecs + decorators, typed against
+    // tsconfig.angular.json.
+    files: ["src/angular/**/*.ts"],
+    extends: [...tseslint.configs.recommendedTypeChecked],
+    languageOptions: {
+      globals: globals.browser,
+      parserOptions: {
+        project: "./tsconfig.angular.json",
         tsconfigRootDir: import.meta.dirname,
       },
     },

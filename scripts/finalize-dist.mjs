@@ -2,8 +2,8 @@
  * finalize-dist.mjs — mark the ESM output directories as ES modules.
  *
  * The root package.json is `"type": "commonjs"`, so Node would treat the .js
- * files under dist/esm and dist/react as CommonJS and choke on their
- * import/export syntax. A nested package.json overrides the type for that
+ * files under dist/esm, dist/react and dist/angular as CommonJS and choke on
+ * their import/export syntax. A nested package.json overrides the type for that
  * directory only; the CJS build at dist/ inherits the root type and needs no
  * marker.
  */
@@ -13,7 +13,7 @@ import * as path from "node:path";
 
 const dist = path.join(import.meta.dirname, "..", "dist");
 
-for (const name of ["esm", "react"]) {
+for (const name of ["esm", "react", "angular"]) {
   const dir = path.join(dist, name);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(
