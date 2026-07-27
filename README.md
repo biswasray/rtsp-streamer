@@ -260,6 +260,13 @@ npm run examples:nest      # NestJS
 
 Then open <http://localhost:8080>, paste an RTSP URL, and press **Play**.
 
+[`examples/react`](./examples/react) is the odd one out: a Vite app using
+`rtsp-streamer/react` instead of the element. It ships no server of its own —
+it reuses any of the servers above for the API and WebSocket (the commands use
+`examples:express`) — so it runs as two processes (the API server on `:8080`,
+Vite on `:5173`) and needs its own `npm install`. See its
+[README](./examples/react/README.md).
+
 The key detail across frameworks: the WebSocket `upgrade` is handled on the raw
 `http.Server`, so build the server explicitly (e.g. `http.createServer(app)` for
 Express, `app.server` for Fastify, `app.getHttpServer()` for Nest) and pass

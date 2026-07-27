@@ -1,0 +1,23 @@
+{
+  // Client-side app config for editors and `tsc --noEmit`. The example's
+  // server.ts is Node code run by tsx from the repo root and is not included.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["vite/client"],
+    "jsx": "react-jsx",
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    // Mirrors the alias in vite.config.ts (see the note there).
+    "paths": {
+      "rtsp-streamer/react": ["../../dist/react/index.d.ts"]
+    }
+  },
+  "include": ["src/**/*", "vite.config.ts"]
+}
