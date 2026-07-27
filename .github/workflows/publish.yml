@@ -1,0 +1,57 @@
+name: Publish
+
+# Publishes to npm on every push to main, but only when the version in
+# package.json is not already on the registry — so merging changes without a
+# version bump is a no-op instead of a failed run. Bump the version (e.g.
+# `npm version patch`) and push to main to release.
+on:
+  push:
+    branches: [main]
+
+# Don't let two releases run at once.
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # required for npm provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - run: npm install
+
+      # Quality gate — fail the release before touching the registry.
+      - run: npm run lint
+      - run: npm run typecheck
+
+      - name: Check whether this version is already published
+        id: version
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          echo "Resolved $name@$version"
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::$name@$version is already on npm — skipping publish"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # `npm publish` runs the `prepublishOnly` script, which builds dist/.
+      # --provenance requires a public repo + the id-token permission above;
+      # drop the flag if this repository is private.
+      - name: Publish to npm
+        if: steps.version.outputs.published == 'false'
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

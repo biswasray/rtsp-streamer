@@ -1,0 +1,30 @@
+name: CI
+
+# Validates feature branches and PRs. Pushes to `main` are validated by the
+# publish workflow instead (which runs the same gate before publishing).
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # No lockfile is committed, so `npm install` (not `npm ci`). Only the
+      # root package is installed — the examples have their own node_modules.
+      - run: npm install
+
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build

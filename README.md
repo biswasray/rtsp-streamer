@@ -393,6 +393,25 @@ npm run format       # Prettier --write
 element (compiled with DOM/WebCodecs types via `tsconfig.html.json` and inlined
 into the library by `scripts/build-assets.mjs`).
 
+## Releasing
+
+Publishing is automated by [`.github/workflows/publish.yml`](.github/workflows/publish.yml):
+every push to `main` runs lint + type-check, then publishes to npm **only if
+`package.json`'s version is not already on the registry**. So a release is just a
+version bump:
+
+```bash
+npm version patch   # or minor / major — commits and tags
+git push origin main --follow-tags
+```
+
+One-time setup: add an npm **automation** access token as the repository secret
+`NPM_TOKEN` (Settings → Secrets and variables → Actions). The workflow publishes
+with [provenance](https://docs.npmjs.com/generating-provenance-statements), which
+needs a public repository; drop `--provenance` from the workflow if the repo is
+private. Feature branches and PRs are checked by
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+
 ## License
 
 ISC
