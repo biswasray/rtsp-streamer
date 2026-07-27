@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist/out-tsc/app",
+    // WebCodecs globals (VideoDecoder, AudioData, …) used by the shared
+    // RtspEngine, which is compiled from source here. TypeScript 5.6's lib.dom
+    // does not yet declare them, so pull them in explicitly.
+    "types": ["dom-webcodecs"]
+  },
+  "files": ["src/main.ts"],
+  "include": ["src/**/*.d.ts"]
+}

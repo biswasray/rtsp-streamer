@@ -93,6 +93,18 @@ export default tseslint.config(
     },
   },
   {
+    // Angular example client: browser TS with decorators, linted without type
+    // info (its own tsconfig and node_modules are not part of the root project).
+    files: ["examples/angular/src/**/*.ts"],
+    extends: [...tseslint.configs.recommended],
+    languageOptions: {
+      globals: globals.browser,
+      parserOptions: {
+        sourceType: "module",
+      },
+    },
+  },
+  {
     // Node-only build helpers.
     files: ["scripts/**/*.mjs"],
     languageOptions: {

@@ -1,0 +1,38 @@
+{
+  // Standalone workspace config for the example (it does not extend the repo
+  // root tsconfig — it has its own node_modules and its own TypeScript).
+  //
+  // The `paths` mapping points `rtsp-streamer/angular` at the binding's *source*
+  // rather than dist/. That is deliberate: the binding is compiled with plain
+  // tsc, so it is not Ivy/AOT-precompiled. Pointing at source lets the Angular
+  // compiler here process the component (and the shared RtspEngine) into Ivy,
+  // which is what makes it work in this AOT build. In your own app you would
+  // instead `npm i rtsp-streamer` — delete this mapping.
+  "compileOnSave": false,
+  "compilerOptions": {
+    "outDir": "./dist/out-tsc",
+    "strict": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "sourceMap": true,
+    "declaration": false,
+    "experimentalDecorators": true,
+    "moduleResolution": "bundler",
+    "importHelpers": true,
+    "target": "ES2022",
+    "module": "ES2022",
+    "lib": ["ES2022", "dom"],
+    "paths": {
+      "rtsp-streamer/angular": ["../../src/angular/index.ts"]
+    }
+  },
+  "angularCompilerOptions": {
+    "enableI18nLegacyMessageIdFormat": false,
+    "strictInjectionParameters": true,
+    "strictInputAccessModifiers": true,
+    "strictTemplates": true
+  }
+}

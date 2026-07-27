@@ -1,0 +1,14 @@
+{
+  "//": "ng serve owns the client on :4200 and proxies the API + WebSocket to",
+  "//2": "the streamRtsp() backend on :8080. The player derives its socket URL",
+  "//3": "from location.host, so /stream must proxy with WebSocket support.",
+  "/api": {
+    "target": "http://localhost:8080",
+    "secure": false
+  },
+  "/stream": {
+    "target": "http://localhost:8080",
+    "secure": false,
+    "ws": true
+  }
+}

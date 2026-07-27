@@ -10,16 +10,17 @@ GET  /stream/<token>   (WebSocket upgrade)   ->  H.264 access units + audio
 
 The four server examples differ only in the HTTP framework. They share the
 browser client in [`public/`](./public) and all listen on **`:8080`**. The
-`react` example is the exception — it renders its own client with Vite and
-reuses one of the servers for the backend.
+`react` and `angular` examples are the exceptions — each renders its own client
+(Vite / the Angular CLI) and reuses one of the servers for the backend.
 
-| Example                     | Framework                    | Command                  |
-| --------------------------- | ---------------------------- | ------------------------ |
-| [`http`](./http)            | Node `http` (no framework)   | `npm run examples:http`    |
-| [`express`](./express)      | Express                      | `npm run examples:express` |
-| [`fastify`](./fastify)      | Fastify                      | `npm run examples:fastify` |
-| [`nest`](./nest)            | NestJS (Express platform)    | `npm run examples:nest`    |
-| [`react`](./react)          | Vite + `rtsp-streamer/react` | see its [README](./react/README.md) |
+| Example                     | Framework                      | Command                    |
+| --------------------------- | ------------------------------ | -------------------------- |
+| [`http`](./http)            | Node `http` (no framework)     | `npm run examples:http`      |
+| [`express`](./express)      | Express                        | `npm run examples:express`   |
+| [`fastify`](./fastify)      | Fastify                        | `npm run examples:fastify`   |
+| [`nest`](./nest)            | NestJS (Express platform)      | `npm run examples:nest`      |
+| [`react`](./react)          | Vite + `rtsp-streamer/react`   | see its [README](./react/README.md)   |
+| [`angular`](./angular)      | Angular CLI + `rtsp-streamer/angular` | see its [README](./angular/README.md) |
 
 ## Prerequisite
 
