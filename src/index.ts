@@ -33,6 +33,7 @@
  */
 
 import * as net from "node:net";
+import * as dgram from "node:dgram";
 import * as crypto from "node:crypto";
 import type * as http from "node:http";
 import type { Duplex } from "node:stream";
@@ -100,6 +101,28 @@ function wsFrame(payload: Buffer): Buffer {
 
 function tagged(type: number, payload: Buffer): Buffer {
   return Buffer.concat([Buffer.from([type]), payload]);
+}
+
+/** Strip an RTP fixed header, CSRCs and extension; null if malformed. */
+function stripRtpHeader(pkt: Buffer): Buffer | null {
+  if (pkt.length < 12 || (pkt[0] ?? 0) >> 6 !== 2) return null;
+  let off = 12 + ((pkt[0] ?? 0) & 0x0f) * 4;
+  if (((pkt[0] ?? 0) >> 4) & 1) {
+    if (pkt.length < off + 4) return null;
+    off += 4 + pkt.readUInt16BE(off + 2) * 4;
+  }
+  return pkt.length > off ? pkt.subarray(off) : null;
+}
+
+/**
+ * A media source that fans H.264/audio frames out to WebSocket viewers. Both
+ * the RTSP session and the RTP/MPEG-TS session implement this, so the token
+ * registry and the 'upgrade' handler treat them the same.
+ */
+interface Broadcaster {
+  readonly clients: Set<Duplex>;
+  addClient(socket: Duplex): void;
+  dispose(): void;
 }
 
 /* ---------------------------- RTSP session ----------------------------- */
@@ -642,11 +665,356 @@ class RtspSession {
   }
 }
 
+/* ------------------- RTP / MPEG-TS (UDP push) session ------------------- */
+
+// ADTS sampling_frequency_index -> sample rate (Hz).
+const AAC_RATES = [
+  96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025,
+  8000, 7350,
+];
+
+// MPEG-TS stream_type values we demux.
+const ST_H264 = 0x1b;
+const ST_AAC_ADTS = 0x0f;
+const ST_AAC_LATM = 0x11;
+
+/** Strip a PES packet header, returning the elementary-stream payload. */
+function pesPayload(d: Buffer): Buffer | null {
+  // 00 00 01 <stream_id> <len:2> <'10'+flags:2> <hdrLen:1> <hdr...> <payload>
+  if (d.length < 9 || d[0] !== 0 || d[1] !== 0 || d[2] !== 1) return null;
+  const start = 9 + (d[8] ?? 0);
+  return start <= d.length ? d.subarray(start) : null;
+}
+
+/**
+ * Receives an MPEG-TS elementary stream pushed over RTP (payload type 33, as
+ * `ffmpeg -f rtp_mpegts rtp://host:port` sends) or bare UDP (`-f mpegts
+ * udp://host:port`), demuxes H.264 video + AAC audio, and broadcasts them on
+ * the same WebSocket wire format the RTSP path uses — so the same
+ * <rtsp-player> consumes it.
+ *
+ * Unlike RTSP we do not connect out; ffmpeg pushes to us. There is nothing to
+ * reconnect, so an idle session just closes its UDP socket and frees the port.
+ */
+class RtpTsSession implements Broadcaster {
+  readonly clients = new Set<Duplex>();
+
+  private sock: dgram.Socket | null = null;
+  private tsLeftover: Buffer = Buffer.alloc(0);
+
+  // Demux routing, learned from PAT/PMT.
+  private pmtPid = -1;
+  private videoPid = -1;
+  private audioPid = -1;
+  // PES reassembly buffers (chunks between payload-unit-start indicators).
+  private readonly videoPes: Buffer[] = [];
+  private readonly audioPes: Buffer[] = [];
+
+  // H.264 access-unit assembly (same shape as the RTSP path).
+  private sps: Buffer | null = null;
+  private pps: Buffer | null = null;
+  private lastKeyUnit: Buffer | null = null;
+  private auNals: Buffer[] = [];
+  private auHasIdr = false;
+
+  private audioConfigMsg: Buffer | null = null;
+  private idleTimer: NodeJS.Timeout | null = null;
+  private disposed = false;
+  private readonly label: string;
+
+  constructor(
+    private readonly host: string,
+    private readonly port: number,
+    private readonly onDispose: () => void,
+  ) {
+    this.label = `rtp:${host}:${port}`;
+    this.listen();
+    this.armIdleTimer(); // free the port if nobody ever watches
+  }
+
+  /* ------------------------- viewer management ------------------------- */
+
+  addClient(socket: Duplex): void {
+    this.clients.add(socket);
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = null;
+    }
+    if (this.audioConfigMsg) socket.write(wsFrame(this.audioConfigMsg));
+    if (this.lastKeyUnit)
+      socket.write(wsFrame(tagged(MSG_VIDEO_KEY, this.lastKeyUnit)));
+
+    socket.on("data", (d: Buffer) => {
+      const opcode = (d[0] ?? 0) & 0x0f;
+      if (opcode === 8) socket.end(); // close
+      if (opcode === 9) socket.write(Buffer.from([0x8a, 0x00])); // ping -> pong
+    });
+    const drop = (): void => {
+      if (!this.clients.delete(socket)) return;
+      console.log(`[ws] viewer left (${this.clients.size}) ${this.label}`);
+      if (this.clients.size === 0) this.armIdleTimer();
+    };
+    socket.on("close", drop);
+    socket.on("error", drop);
+    console.log(`[ws] viewer joined (${this.clients.size}) ${this.label}`);
+  }
+
+  private armIdleTimer(): void {
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = setTimeout(() => {
+      if (this.clients.size === 0) this.dispose();
+    }, IDLE_MS);
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    console.log(`[rtp] disposing session ${this.label}`);
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    if (this.sock) {
+      try {
+        this.sock.close();
+      } catch {
+        /* already closing */
+      }
+      this.sock = null;
+    }
+    for (const c of this.clients) {
+      c.write(Buffer.from([0x88, 0x00])); // WS close
+      c.end();
+    }
+    this.clients.clear();
+    this.onDispose();
+  }
+
+  /* ----------------------------- transport ----------------------------- */
+
+  private listen(): void {
+    const sock = dgram.createSocket({ type: "udp4", reuseAddr: true });
+    this.sock = sock;
+    sock.on("message", (msg: Buffer) => this.onDatagram(msg));
+    sock.on("error", (e: Error) =>
+      console.error(`[rtp] socket error: ${e.message}`),
+    );
+    sock.bind(this.port, this.host, () =>
+      console.log(`[rtp] listening on ${this.label} — waiting for ffmpeg`),
+    );
+  }
+
+  private onDatagram(msg: Buffer): void {
+    // Bare MPEG-TS (udp://) starts with the 0x47 sync byte; otherwise it is an
+    // RTP packet (rtp://) whose payload is the TS stream.
+    const ts = msg[0] === 0x47 ? msg : stripRtpHeader(msg);
+    if (ts) this.pushTs(ts);
+  }
+
+  /* -------------------------- MPEG-TS demux ---------------------------- */
+
+  private pushTs(chunk: Buffer): void {
+    const buf = this.tsLeftover.length
+      ? Buffer.concat([this.tsLeftover, chunk])
+      : chunk;
+    let i = 0;
+    while (i + 188 <= buf.length) {
+      if (buf[i] !== 0x47) {
+        i++; // resync to the next sync byte
+        continue;
+      }
+      this.tsPacket(buf.subarray(i, i + 188));
+      i += 188;
+    }
+    this.tsLeftover = buf.subarray(i);
+  }
+
+  private tsPacket(pkt: Buffer): void {
+    const pusi = ((pkt[1] ?? 0) & 0x40) !== 0;
+    const pid = (((pkt[1] ?? 0) & 0x1f) << 8) | (pkt[2] ?? 0);
+    const afc = ((pkt[3] ?? 0) >> 4) & 0x3;
+    let off: number;
+    if (afc === 1) off = 4;
+    else if (afc === 3) off = 5 + (pkt[4] ?? 0); // skip adaptation field
+    else return; // 0 (reserved) or 2 (adaptation only) — no payload
+    if (off >= 188) return;
+    const payload = pkt.subarray(off);
+
+    if (pid === 0) this.parsePat(payload, pusi);
+    else if (pid === this.pmtPid) this.parsePmt(payload, pusi);
+    else if (pid === this.videoPid) this.onPes(this.videoPes, payload, pusi);
+    else if (pid === this.audioPid) this.onPes(this.audioPes, payload, pusi);
+  }
+
+  private parsePat(payload: Buffer, pusi: boolean): void {
+    if (this.pmtPid >= 0) return; // already know the program map
+    const p = pusi ? 1 + (payload[0] ?? 0) : 0; // skip pointer_field
+    const sectionLen =
+      (((payload[p + 1] ?? 0) & 0x0f) << 8) | (payload[p + 2] ?? 0);
+    const end = p + 3 + sectionLen - 4; // drop CRC32
+    for (let i = p + 8; i + 4 <= end; i += 4) {
+      const program = ((payload[i] ?? 0) << 8) | (payload[i + 1] ?? 0);
+      const pid = (((payload[i + 2] ?? 0) & 0x1f) << 8) | (payload[i + 3] ?? 0);
+      if (program !== 0) {
+        this.pmtPid = pid; // first actual program's PMT
+        break;
+      }
+    }
+  }
+
+  private parsePmt(payload: Buffer, pusi: boolean): void {
+    const p = pusi ? 1 + (payload[0] ?? 0) : 0;
+    const sectionLen =
+      (((payload[p + 1] ?? 0) & 0x0f) << 8) | (payload[p + 2] ?? 0);
+    const end = p + 3 + sectionLen - 4;
+    const progInfoLen =
+      (((payload[p + 10] ?? 0) & 0x0f) << 8) | (payload[p + 11] ?? 0);
+    for (let i = p + 12 + progInfoLen; i + 5 <= end; ) {
+      const streamType = payload[i] ?? 0;
+      const pid = (((payload[i + 1] ?? 0) & 0x1f) << 8) | (payload[i + 2] ?? 0);
+      const esInfoLen =
+        (((payload[i + 3] ?? 0) & 0x0f) << 8) | (payload[i + 4] ?? 0);
+      if (streamType === ST_H264 && this.videoPid < 0) this.videoPid = pid;
+      else if (
+        (streamType === ST_AAC_ADTS || streamType === ST_AAC_LATM) &&
+        this.audioPid < 0
+      )
+        this.audioPid = pid;
+      i += 5 + esInfoLen;
+    }
+  }
+
+  /** Reassemble a PES: a payload-unit start flushes the previous one. */
+  private onPes(acc: Buffer[], payload: Buffer, pusi: boolean): void {
+    if (pusi) {
+      if (acc.length) {
+        const pes = Buffer.concat(acc);
+        acc.length = 0;
+        if (acc === this.videoPes) this.onVideoEs(pes);
+        else this.onAudioEs(pes);
+      }
+      const es = pesPayload(payload);
+      if (es) acc.push(es);
+    } else if (acc.length) {
+      acc.push(payload);
+    }
+  }
+
+  private onVideoEs(pes: Buffer): void {
+    const es = pesPayload(pes) ?? pes; // acc holds ES already; guard anyway
+    // Annex-B: NALs separated by 00 00 01 / 00 00 00 01. Emit each between
+    // start codes; onNAL()/flushAU() do the same AU assembly as the RTSP path.
+    let start = -1;
+    let zeros = 0;
+    for (let i = 0; i < es.length; i++) {
+      const b = es[i]!;
+      if (b === 0) {
+        zeros++;
+        continue;
+      }
+      if (b === 1 && zeros >= 2) {
+        if (start >= 0) this.onNAL(es.subarray(start, i - zeros));
+        start = i + 1;
+      }
+      zeros = 0;
+    }
+    if (start >= 0 && start < es.length) this.onNAL(es.subarray(start));
+    this.flushAU();
+  }
+
+  private onAudioEs(pes: Buffer): void {
+    const es = pesPayload(pes) ?? pes;
+    for (let i = 0; i + 7 <= es.length; ) {
+      if (es[i] !== 0xff || ((es[i + 1] ?? 0) & 0xf0) !== 0xf0) {
+        i++; // hunt for the ADTS syncword
+        continue;
+      }
+      const profile = ((es[i + 2] ?? 0) >> 6) & 0x3;
+      const freqIdx = ((es[i + 2] ?? 0) >> 2) & 0xf;
+      const chanCfg =
+        (((es[i + 2] ?? 0) & 0x1) << 2) | (((es[i + 3] ?? 0) >> 6) & 0x3);
+      const frameLen =
+        (((es[i + 3] ?? 0) & 0x3) << 11) |
+        ((es[i + 4] ?? 0) << 3) |
+        (((es[i + 5] ?? 0) >> 5) & 0x7);
+      if (frameLen < 7 || i + frameLen > es.length) break;
+      const headerLen = (es[i + 1] ?? 0) & 0x1 ? 7 : 9; // CRC absent -> 7
+      if (!this.audioConfigMsg) this.sendAudioConfig(profile, freqIdx, chanCfg);
+      const au = es.subarray(i + headerLen, i + frameLen);
+      if (au.length) this.broadcast(MSG_AUDIO, au);
+      i += frameLen;
+    }
+  }
+
+  private sendAudioConfig(
+    profile: number,
+    freqIdx: number,
+    chanCfg: number,
+  ): void {
+    const sampleRate = AAC_RATES[freqIdx] ?? 44100;
+    const objectType = profile + 1; // ADTS profile is audioObjectType - 1
+    // AudioSpecificConfig: 5b objectType, 4b freqIndex, 4b channelConfig.
+    const asc = Buffer.from([
+      (objectType << 3) | (freqIdx >> 1),
+      ((freqIdx & 1) << 7) | (chanCfg << 3),
+    ]);
+    this.audioConfigMsg = tagged(
+      MSG_AUDIO_CONFIG,
+      Buffer.from(
+        JSON.stringify({
+          codec: "mp4a.40.2",
+          sampleRate,
+          numberOfChannels: chanCfg,
+          description: asc.toString("base64"),
+        }),
+      ),
+    );
+    for (const c of this.clients) c.write(wsFrame(this.audioConfigMsg));
+    console.log(
+      `[rtp] audio: mp4a.40.2 ${sampleRate}Hz x${chanCfg} ${this.label}`,
+    );
+  }
+
+  /* -------------------- H.264 access-unit assembly --------------------- */
+
+  private onNAL(nal: Buffer): void {
+    const t = (nal[0] ?? 0) & 0x1f;
+    if (t === 7) {
+      this.sps = Buffer.from(nal);
+      return;
+    }
+    if (t === 8) {
+      this.pps = Buffer.from(nal);
+      return;
+    }
+    if (t !== 5 && t !== 1) return; // AUD/SEI/filler — not part of the AU
+    if (t === 5) this.auHasIdr = true;
+    this.auNals.push(Buffer.from(nal));
+  }
+
+  private flushAU(): void {
+    if (!this.auNals.length) return;
+    const nals = this.auNals;
+    this.auNals = [];
+    const isKey = this.auHasIdr;
+    this.auHasIdr = false;
+    if (isKey && (!this.sps || !this.pps)) return; // not decodable yet
+    const parts: Buffer[] = isKey ? [START, this.sps!, START, this.pps!] : [];
+    for (const n of nals) parts.push(START, n);
+    const unit = Buffer.concat(parts);
+    if (isKey) this.lastKeyUnit = unit;
+    this.broadcast(isKey ? MSG_VIDEO_KEY : MSG_VIDEO_DELTA, unit);
+  }
+
+  private broadcast(type: number, payload: Buffer): void {
+    if (!this.clients.size) return;
+    const frame = wsFrame(tagged(type, payload));
+    for (const c of this.clients) c.write(frame);
+  }
+}
+
 /* ============================ public API ================================ */
 
 const attachedServers = new WeakSet<http.Server>();
-const sessionsByUrl = new Map<string, RtspSession>();
-const sessionsByToken = new Map<string, RtspSession>();
+const sessionsByUrl = new Map<string, Broadcaster>();
+const sessionsByToken = new Map<string, Broadcaster>();
 
 /**
  * Start (or reuse) an RTSP session for rtspUrl and expose it on `server`
@@ -673,6 +1041,48 @@ export function streamRtsp(server: http.Server, rtspUrl: string): string {
         if (s === created) sessionsByToken.delete(tok);
     });
     sessionsByUrl.set(rtspUrl, created);
+    sess = created;
+  }
+
+  const token = crypto.randomBytes(16).toString("hex");
+  sessionsByToken.set(token, sess);
+  return `/stream/${token}`;
+}
+
+/**
+ * Start (or reuse) an RTP/MPEG-TS receiver bound to `url` and expose it on
+ * `server` as a WebSocket endpoint, returning the token-protected path (like
+ * `streamRtsp`). `url` is where *we listen* and ffmpeg pushes to, e.g.
+ * `rtp://127.0.0.1:5004` (RTP payload type 33 — `ffmpeg -f rtp_mpegts`) or
+ * `udp://127.0.0.1:5004` (bare MPEG-TS — `ffmpeg -f mpegts`).
+ *
+ *   const path = streamRtp(server, "rtp://127.0.0.1:5004");
+ *
+ * The same <rtsp-player> consumes the result. Multiple calls with the same url
+ * share one receiver but get distinct tokens.
+ */
+export function streamRtp(server: http.Server, url: string): string {
+  const u = new URL(url); // throws on malformed URL
+  if (!/^(rtp|udp):\/\//i.test(url))
+    throw new Error("url must start with rtp:// or udp://");
+  const host = u.hostname || "127.0.0.1";
+  const port = Number(u.port);
+  if (!port) throw new Error("a port is required, e.g. rtp://127.0.0.1:5004");
+
+  if (!attachedServers.has(server)) {
+    attachUpgradeHandler(server);
+    attachAssetHandler(server);
+    attachedServers.add(server);
+  }
+
+  let sess = sessionsByUrl.get(url);
+  if (!sess) {
+    const created = new RtpTsSession(host, port, () => {
+      sessionsByUrl.delete(url);
+      for (const [tok, s] of sessionsByToken)
+        if (s === created) sessionsByToken.delete(tok);
+    });
+    sessionsByUrl.set(url, created);
     sess = created;
   }
 

@@ -54,6 +54,7 @@
     "examples:express": "tsx examples/express/server.ts",
     "examples:fastify": "tsx examples/fastify/server.ts",
     "examples:nest": "tsx --tsconfig examples/nest/tsconfig.json examples/nest/server.ts",
+    "examples:rtp": "tsx examples/rtp/server.ts",
     "examples:react": "cd examples/react && npm run dev",
     "examples:angular": "cd examples/angular && npm start",
     "examples:next": "cd examples/next && npm run dev",

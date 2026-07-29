@@ -17,6 +17,9 @@ RTSP camera ──TCP──▶ streamRtsp() ──WebSocket──▶ <rtsp-playe
   NestJS — you hand it the underlying `http.Server`.
 - **Connection sharing.** One camera connection per unique RTSP URL, fanned out
   to every viewer; each `streamRtsp()` call returns a fresh access token.
+- **RTP push, too.** `streamRtp()` receives an MPEG-TS stream pushed over
+  RTP/UDP (e.g. `ffmpeg -f rtp_mpegts`), demuxes H.264 + AAC, and feeds the same
+  player — no camera required.
 - **Instant start.** New viewers immediately receive the last cached keyframe,
   so video appears without waiting for the camera's next IDR.
 - **Audio.** AAC, G.711 (PCMU/PCMA) and Opus tracks are forwarded and played
@@ -124,6 +127,29 @@ The first call on a given `server` also:
 
 > Call `streamRtsp()` **after** your routes/handler are attached to the server,
 > so they are captured by the request wrapper.
+
+### `streamRtp(server, url): string`
+
+The **push** counterpart of `streamRtsp()`, for when a producer sends you an
+MPEG-TS stream over RTP/UDP instead of you pulling from a camera. `url` is where
+the library **listens** and the producer pushes to — `rtp://host:port` (RTP,
+payload type 33) or `udp://host:port` (bare MPEG-TS). Returns the same
+token-protected `/stream/<token>` path, consumed by the same `<rtsp-player>`.
+
+```ts
+const path = streamRtp(server, "rtp://127.0.0.1:5004");
+```
+
+Feed it from ffmpeg (H.264 video + AAC audio are demuxed; other codecs ignored):
+
+```bash
+ffmpeg -f dshow -i video="Integrated Camera":audio="Microphone Array (Realtek(R) Audio)" \
+  -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -b:v 2000k \
+  -g 30 -c:a aac -b:a 128k -f rtp_mpegts rtp://127.0.0.1:5004
+```
+
+`-g 30` keeps the keyframe interval short so video starts in ~1s; the stream
+works without it too. See [`examples/rtp`](./examples/rtp) for a runnable server.
 
 ### `serveRtspPlayer(req, res, mountPath?): boolean`
 
@@ -365,6 +391,7 @@ npm run examples:http      # plain node:http  → examples/http
 npm run examples:express   # Express          → examples/express
 npm run examples:fastify   # Fastify          → examples/fastify
 npm run examples:nest      # NestJS           → examples/nest
+npm run examples:rtp       # RTP/MPEG-TS push → examples/rtp   (ffmpeg pushes)
 ```
 
 Each folder has its own walkthrough:
@@ -372,6 +399,7 @@ Each folder has its own walkthrough:
 [`express`](./examples/express/README.md) ·
 [`fastify`](./examples/fastify/README.md) ·
 [`nest`](./examples/nest/README.md) ·
+[`rtp`](./examples/rtp/README.md) ·
 [`react`](./examples/react/README.md) ·
 [`angular`](./examples/angular/README.md) ·
 [`next`](./examples/next/README.md).
