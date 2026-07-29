@@ -1,0 +1,30 @@
+{
+  // Next.js binding in src/next: an App Router route-handler factory (server,
+  // Web Request/Response) plus a "use client" re-export of the React player.
+  // Ships as ESM; React is an optional peer dependency, Next is never imported.
+  //
+  // rootDir is ./src so the React binding that the client entry re-exports can
+  // be compiled in alongside it. That nests the output as dist/next/next/* and
+  // dist/next/react/*; the "./next" and "./next/client" exports in
+  // package.json point at the nested files.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": [],
+    "jsx": "react-jsx",
+    "outDir": "./dist/next",
+    "rootDir": "./src",
+    "declaration": true,
+    "sourceMap": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/next/**/*", "src/react/**/*"]
+}

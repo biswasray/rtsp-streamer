@@ -294,6 +294,62 @@ element. Use one or the other in a given app, never both (don't also load
 > `ng-packagr`) is the long-term fix but currently blocked by the repo's
 > bleeding-edge TypeScript version, which the Angular compiler rejects.
 
+## Next.js
+
+The player as a Next.js **client component**, plus an App Router **Route
+Handler** for the token endpoint. Split into two entries so the server half
+never pulls the client boundary:
+
+- `rtsp-streamer/next/client` — the `"use client"` player (the React binding,
+  ready to drop into a Server Component page).
+- `rtsp-streamer/next` — server helpers: `createStreamRoute()` and
+  `registerRtspBridge()`.
+
+```tsx
+// app/page.tsx — a Server Component; the client boundary is inside the import
+import { RtspPlayer } from "rtsp-streamer/next/client";
+
+export default function Page() {
+  return <RtspPlayer src="rtsp://user:pass@cam/stream1" autoPlay muted />;
+}
+```
+
+```ts
+// app/api/stream/route.ts — the token endpoint the player POSTs to
+import { createStreamRoute } from "rtsp-streamer/next";
+
+export const POST = createStreamRoute();
+```
+
+> **Next needs a custom server here.** `streamRtsp()` owns the underlying
+> `http.Server` — both to mint the token _and_ to answer the `/stream/<token>`
+> WebSocket upgrade — and a normal route handler can't reach that server or a
+> raw socket. So run Next with a
+> [custom server](https://nextjs.org/docs/app/building-your-application/configuring/custom-server)
+> and register how tokens are minted; `createStreamRoute()` reads that bridge
+> (shared via `globalThis`, so it survives Next's separate bundling):
+
+```ts
+// server.ts — custom server
+import { createServer } from "node:http";
+import next from "next";
+import { streamRtsp } from "rtsp-streamer";
+import { registerRtspBridge } from "rtsp-streamer/next";
+
+const app = next({ dev: process.env.NODE_ENV !== "production" });
+const handle = app.getRequestHandler();
+
+await app.prepare();
+const server = createServer((req, res) => handle(req, res));
+// streamRtsp() attaches the /stream/<token> upgrade handler to this server.
+registerRtspBridge((rtspUrl) => streamRtsp(server, rtspUrl));
+server.listen(3000);
+```
+
+`mintStream(rtspUrl)` is also exported if you would rather mint from a Server
+Action than the route handler. React (`>=18`) is the only peer dependency —
+Next itself is never imported by the package.
+
 ## Framework examples
 
 Runnable servers for the raw `http` module, Express, Fastify, and NestJS live in

@@ -22,7 +22,14 @@
     "resolveJsonModule": true
   },
   "include": ["src/**/*"],
-  // src/html, src/react and src/angular are browser code — built by their own
-  // tsconfigs.
-  "exclude": ["node_modules", "dist", "src/html", "src/react", "src/angular"]
+  // src/html, src/react, src/angular and src/next are browser / framework code
+  // — built by their own tsconfigs.
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src/html",
+    "src/react",
+    "src/angular",
+    "src/next"
+  ]
 }

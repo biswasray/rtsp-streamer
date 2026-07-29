@@ -26,16 +26,25 @@
       "types": "./dist/angular/angular/index.d.ts",
       "default": "./dist/angular/angular/index.js"
     },
+    "./next": {
+      "types": "./dist/next/next/index.d.ts",
+      "default": "./dist/next/next/index.js"
+    },
+    "./next/client": {
+      "types": "./dist/next/next/client.d.ts",
+      "default": "./dist/next/next/client.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "npm run build:assets && npm run build:cjs && npm run build:esm && npm run build:react && npm run build:angular && node scripts/finalize-dist.mjs",
+    "build": "npm run build:assets && npm run build:cjs && npm run build:esm && npm run build:react && npm run build:angular && npm run build:next && node scripts/finalize-dist.mjs",
     "build:html": "tsc -p tsconfig.html.json",
     "build:react": "tsc -p tsconfig.react.json",
     "build:angular": "tsc -p tsconfig.angular.json",
+    "build:next": "tsc -p tsconfig.next.json",
     "build:assets": "npm run build:html && node scripts/build-assets.mjs",
     "build:cjs": "tsc -p tsconfig.json",
     "build:esm": "tsc -p tsconfig.esm.json",
@@ -47,7 +56,7 @@
     "examples:nest": "tsx --tsconfig examples/nest/tsconfig.json examples/nest/server.ts",
     "examples:react": "cd examples/react && npm run dev",
     "examples:angular": "cd examples/angular && npm start",
-    "typecheck": "npm run build:assets && tsc -p tsconfig.json --noEmit && tsc -p tsconfig.esm.json --noEmit && tsc -p tsconfig.react.json --noEmit && tsc -p tsconfig.angular.json --noEmit",
+    "typecheck": "npm run build:assets && tsc -p tsconfig.json --noEmit && tsc -p tsconfig.esm.json --noEmit && tsc -p tsconfig.react.json --noEmit && tsc -p tsconfig.angular.json --noEmit && tsc -p tsconfig.next.json --noEmit",
     "lint": "npm run build:assets && eslint .",
     "lint:fix": "npm run build:assets && eslint . --fix",
     "format": "prettier --write .",

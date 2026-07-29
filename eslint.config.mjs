@@ -18,10 +18,10 @@ export default tseslint.config(
   },
   js.configs.recommended,
   {
-    // Node library source (src/html, src/react, src/angular are browser code
-    // — configured below).
+    // Node library source (src/html, src/react, src/angular, src/next are
+    // browser / framework code — configured below).
     files: ["src/**/*.ts"],
-    ignores: ["src/html/**", "src/react/**", "src/angular/**"],
+    ignores: ["src/html/**", "src/react/**", "src/angular/**", "src/next/**"],
     extends: [...tseslint.configs.recommendedTypeChecked],
     languageOptions: {
       parserOptions: {
@@ -69,6 +69,19 @@ export default tseslint.config(
       globals: globals.browser,
       parserOptions: {
         project: "./tsconfig.angular.json",
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+  },
+  {
+    // Next.js binding: Web Request/Response + React re-export, typed against
+    // tsconfig.next.json.
+    files: ["src/next/**/*.ts"],
+    extends: [...tseslint.configs.recommendedTypeChecked],
+    languageOptions: {
+      globals: globals.browser,
+      parserOptions: {
+        project: "./tsconfig.next.json",
         tsconfigRootDir: import.meta.dirname,
       },
     },
