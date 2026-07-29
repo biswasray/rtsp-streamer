@@ -10,8 +10,9 @@ GET  /stream/<token>   (WebSocket upgrade)   ->  H.264 access units + audio
 
 The four server examples differ only in the HTTP framework. They share the
 browser client in [`public/`](./public) and all listen on **`:8080`**. The
-`react` and `angular` examples are the exceptions — each renders its own client
-(Vite / the Angular CLI) and reuses one of the servers for the backend.
+`react`, `angular` and `next` examples are the exceptions — each renders its own
+client and either reuses one of the servers (`react`, `angular`) or is its own
+server (`next`).
 
 | Example                | Framework                             | Command                               |
 | ---------------------- | ------------------------------------- | ------------------------------------- |
@@ -21,6 +22,7 @@ browser client in [`public/`](./public) and all listen on **`:8080`**. The
 | [`nest`](./nest)       | NestJS (Express platform)             | `npm run examples:nest`               |
 | [`react`](./react)     | Vite + `rtsp-streamer/react`          | see its [README](./react/README.md)   |
 | [`angular`](./angular) | Angular CLI + `rtsp-streamer/angular` | see its [README](./angular/README.md) |
+| [`next`](./next)       | Next.js App Router + `rtsp-streamer/next` | see its [README](./next/README.md) |
 
 ## Prerequisite
 

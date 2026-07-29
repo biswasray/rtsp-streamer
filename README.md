@@ -373,7 +373,8 @@ Each folder has its own walkthrough:
 [`fastify`](./examples/fastify/README.md) ·
 [`nest`](./examples/nest/README.md) ·
 [`react`](./examples/react/README.md) ·
-[`angular`](./examples/angular/README.md).
+[`angular`](./examples/angular/README.md) ·
+[`next`](./examples/next/README.md).
 
 [`examples/react`](./examples/react/README.md) and
 [`examples/angular`](./examples/angular/README.md) are the odd ones out: SPA apps
@@ -381,6 +382,9 @@ using `rtsp-streamer/react` / `rtsp-streamer/angular` instead of the element.
 Neither ships a server — each reuses one of the servers above for the API and
 WebSocket, so it runs as two processes (the backend on `:8080`, the client dev
 server on `:5173` / `:4200`) and needs its own `npm install`.
+[`examples/next`](./examples/next/README.md) uses `rtsp-streamer/next` on the App
+Router; it's a single custom-server process (`:3000`) because that's what the
+WebSocket upgrade needs.
 
 The key detail across frameworks: the WebSocket `upgrade` is handled on the raw
 `http.Server`, so build the server explicitly (e.g. `http.createServer(app)` for
